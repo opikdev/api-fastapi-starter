@@ -53,9 +53,11 @@ services:
   worker:
     build: .
     command: [worker]
-    # The worker serves no HTTP, so the image's health check doesn't apply.
+    # The worker serves no HTTP, so replace the image's health check with one that only confirms
+    # the container is running. `docker compose up --wait` needs every service to have one.
     healthcheck:
-      disable: true
+      test: [CMD, "true"]
+      interval: 5s
     environment:
       DATABASE_URL: postgres://api_app:api_app_dev_password@db:5432/api
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
