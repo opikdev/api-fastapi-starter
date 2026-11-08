@@ -1,0 +1,89 @@
+[project]
+name = "api-fastapi-starter"
+version = "0.1.0"
+description = "Production-ready Python API with FastAPI, SQLAlchemy, Postgres, background jobs, and auth"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.14"
+dependencies = [
+  "alembic>=1.20,<2",
+  "argon2-cffi>=25.1",
+  "email-validator>=2.3,<3",
+  "fastapi>=0.162,<0.163",
+  "opentelemetry-exporter-otlp-proto-http>=1.45,<2",
+  "opentelemetry-instrumentation-fastapi>=0.66b2",
+  "opentelemetry-instrumentation-sqlalchemy>=0.66b2",
+  "opentelemetry-sdk>=1.45,<2",
+  "procrastinate>=3.10,<4",
+  "psycopg[binary,pool]>=3.3,<4",
+  "pydantic>=2.14,<3",
+  "pydantic-settings>=2.16,<3",
+  "sqlalchemy[asyncio]>=2.1,<2.2",
+  "uvicorn>=0.54,<1",
+]
+
+[project.scripts]
+api-fastapi-starter = "app.cli:main"
+
+[dependency-groups]
+dev = [
+  "attrs>=25",
+  "httpx2>=2.16,<3",
+  "mypy>=2.4,<3",
+  "openapi-python-client>=0.30,<0.31",
+  "pytest>=9.2,<10",
+  "pytest-cov>=7.1,<8",
+  "ruff>=0.17,<0.18",
+  "testcontainers[postgres]>=4.15,<5",
+]
+
+[build-system]
+requires = ["uv_build>=0.13,<0.14"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "app"
+
+[tool.ruff]
+line-length = 100
+target-version = "py314"
+extend-exclude = ["clients/python"]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "UP", "S", "SIM", "RUF", "ASYNC", "PT", "N", "C4", "PL", "TRY", "PERF", "FAST"]
+# The formatter wraps code. Long strings, such as a renamed project name, may exceed the limit.
+ignore = ["E501", "PLR2004", "TRY003"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S106", "S603", "S607", "PLR0913", "PLR0917"]
+"src/app/migrations/**" = ["N999"]
+# FastAPI endpoints take their inputs as parameters.
+"src/app/features/*/routes.py" = ["PLR0913", "PLR0917"]
+
+[tool.mypy]
+strict = true
+plugins = ["pydantic.mypy"]
+files = ["src", "tests"]
+exclude = ["clients/python"]
+
+[[tool.mypy.overrides]]
+module = ["api_client.*", "procrastinate.*", "testcontainers.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+addopts = "-p no:cacheprovider --strict-markers"
+pythonpath = [".", "clients/python"]
+testpaths = ["tests/unit", "tests/integration"]
+filterwarnings = ["error", "ignore::DeprecationWarning:testcontainers.*"]
+
+[tool.coverage.run]
+source = ["app"]
+branch = true
+patch = ["subprocess"]
+sigterm = true
+
+[tool.coverage.report]
+fail_under = 90
+show_missing = true
+skip_covered = true

@@ -1,0 +1,8 @@
+.git
+.venv
+tests
+docs
+clients
+.env
+**/__pycache__
+.coverage*
