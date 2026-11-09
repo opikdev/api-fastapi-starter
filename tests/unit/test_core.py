@@ -45,7 +45,11 @@ def test_settings_split_cors_origins_and_ignore_empty_values() -> None:
         ({"DATABASE_URL": URL, "TRUST_PROXY_HOPS": "-1"}, "TRUST_PROXY_HOPS"),
     ],
 )
-def test_settings_name_each_bad_variable_without_its_value(env: dict[str, str], name: str) -> None:
+def test_settings_name_each_bad_variable_without_its_value(
+    env: dict[str, str], name: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Settings also read the process environment, which a dev container fills in.
+    monkeypatch.delenv("DATABASE_URL", raising=False)
     with pytest.raises(ConfigError, match=name) as error:
         load_settings(env)
     assert "pw@" not in str(error.value)
