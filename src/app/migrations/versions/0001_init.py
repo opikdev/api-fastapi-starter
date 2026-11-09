@@ -5,16 +5,19 @@ Revises:
 """
 
 from collections.abc import Sequence
+from pathlib import Path
 
 import sqlalchemy as sa
 from alembic import op
-from procrastinate.schema import SchemaManager
 from sqlalchemy.dialects import postgresql
 
 revision: str = "0001"
 down_revision: str | None = None
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
+
+# Procrastinate's schema, frozen at 3.10.0 so this revision never changes when procrastinate does.
+PROCRASTINATE_SCHEMA = Path(__file__).with_name("0001_procrastinate_3.10.0.sql")
 
 
 def upgrade() -> None:
@@ -150,8 +153,7 @@ def upgrade() -> None:
         sa.UniqueConstraint("token_hash", name=op.f("uq_sessions_token_hash")),
     )
     op.create_index(op.f("idx_sessions_expires_at"), "sessions", ["expires_at"], unique=False)
-    # Procrastinate's tables, functions, and triggers, at the version this lock file pins.
-    op.execute(SchemaManager.get_schema())
+    op.execute(PROCRASTINATE_SCHEMA.read_text(encoding="utf-8"))
 
 
 def downgrade() -> None:

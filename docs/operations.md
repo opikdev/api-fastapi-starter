@@ -45,7 +45,7 @@ Treat migrations as append-only and forward-only. Each Alembic revision has a `d
 
 - Rename or retype a column in steps: add the new one, backfill, switch the code, then drop the old one in a later deploy.
 - Use `CREATE INDEX CONCURRENTLY` on large tables, inside `op.get_context().autocommit_block()`.
-- When you upgrade procrastinate, apply its SQL migrations in a new Alembic revision. Its release notes list them.
+- Migration `0001` creates procrastinate's tables from a frozen copy of its 3.10.0 schema, `0001_procrastinate_3.10.0.sql`, so it means the same thing on every install. When you upgrade procrastinate, add a revision that runs its upgrade scripts for each version in between, in order, from the folder `uv run procrastinate schema --migrations-path` prints. Run `pre` scripts before the new code deploys and `post` scripts after, as its release notes say. Then bump `MIGRATED_TO` in `tests/unit/test_migrations.py`, which fails until you do.
 - Read the SQL before merging, because a small diff can take a long lock.
 
 ## Back up the database
