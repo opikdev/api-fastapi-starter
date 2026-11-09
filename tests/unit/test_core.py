@@ -1,3 +1,4 @@
+import logging
 from uuid import UUID
 
 import pytest
@@ -5,6 +6,7 @@ from starlette.requests import HTTPConnection
 
 from app.config import ConfigError, database_url, load_settings
 from app.ids import Prefix, format_id, parse_id
+from app.log import configure_logging
 from app.main import create_app
 from app.ratelimit import client_ip
 from app.security import DUMMY_HASH, hash_password, hash_token, new_token, verify_password
@@ -47,6 +49,27 @@ def test_settings_name_each_bad_variable_without_its_value(env: dict[str, str], 
     with pytest.raises(ConfigError, match=name) as error:
         load_settings(env)
     assert "pw@" not in str(error.value)
+
+
+@pytest.mark.parametrize(
+    ("value", "level"),
+    [
+        ("debug", "DEBUG"),
+        ("info", "INFO"),
+        ("warn", "WARNING"),
+        ("warning", "WARNING"),
+        ("error", "ERROR"),
+    ],
+)
+def test_log_level_accepts_each_documented_value(value: str, level: str) -> None:
+    root = logging.getLogger()
+    handlers, previous = root.handlers[:], root.level
+    try:
+        configure_logging(load_settings({"DATABASE_URL": URL, "LOG_LEVEL": value}).log_level)
+        assert logging.getLevelName(root.level) == level
+    finally:
+        root.handlers[:] = handlers
+        root.setLevel(previous)
 
 
 def test_settings_refuse_the_replaced_trust_proxy() -> None:

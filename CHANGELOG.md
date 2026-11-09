@@ -16,6 +16,7 @@ All notable changes to this repo are recorded here. The format follows [Keep a C
 
 ### Fixed
 
+- `LOG_LEVEL=warn`, as documented, no longer stops the API from starting. `warning` still works.
 - Registration queues the welcome email in the same transaction as the user. A queueing failure used to return 500 but keep the user, so a retry got 409 and no email ever went out.
 - Jobs and `seed` read their settings through `Settings` when they start, not from `os.environ` when `app.jobs` is imported. Jobs get the database from `context.additional_context`, and the API no longer opens a queue pool.
 - Password hashing and checks run in a thread, so registration and login no longer block other requests.

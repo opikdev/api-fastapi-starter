@@ -9,7 +9,7 @@ Set these on the API process. `.env.example` lists every option with a safe defa
 | `DATABASE_URL` | URL | Required | Connection for the `api_app` role |
 | `MIGRATION_DATABASE_URL` | URL | Required for `migrate` | Connection for the `api_owner` role |
 | `PORT` | number | `3000` | Listen port |
-| `LOG_LEVEL` | string | `info` | `debug`, `info`, `warn`, or `error` |
+| `LOG_LEVEL` | string | `info` | `debug`, `info`, `warn`, `warning`, or `error`. `warn` and `warning` are the same |
 | `DATABASE_STATEMENT_TIMEOUT_MS` | number | `5000` | Cancels slow queries |
 | `DATABASE_POOL_MAX` | number | `10` | Database connections per process. Keep the total across processes under Postgres's `max_connections` |
 | `CORS_ORIGINS` | list | Empty | Comma-separated browser origins. Empty disables CORS |

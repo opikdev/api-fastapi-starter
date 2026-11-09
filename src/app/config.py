@@ -6,6 +6,8 @@ from typing import Literal
 from pydantic import Field, PostgresDsn, ValidationError
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+LogLevel = Literal["debug", "info", "warn", "warning", "error"]
+
 
 class ConfigError(Exception):
     """A setting is missing or invalid. The message names the variable, never its value."""
@@ -16,7 +18,7 @@ class Settings(BaseSettings):
 
     database_url: PostgresDsn
     port: int = Field(default=3000, ge=1, le=65535)
-    log_level: Literal["debug", "info", "warning", "error"] = "info"
+    log_level: LogLevel = "info"
     database_statement_timeout_ms: int = Field(default=5000, ge=100, le=600_000)
     database_pool_max: int = Field(default=10, ge=1)
     cors_origins: str = ""
