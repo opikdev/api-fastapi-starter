@@ -36,7 +36,7 @@ Remove the `idempotency_key` header from `create_note`, insert the note directly
 
 ## Remove background jobs
 
-Delete `src/app/jobs.py`, `src/app/email.py`, and `tests/integration/test_jobs.py`. Remove the `defer_async` call from registration, the queue from the lifespan in `src/app/main.py`, the `worker` command, and the `worker` service in Compose. Then drop procrastinate's tables in a new migration, and run `uv remove procrastinate`.
+Delete `src/app/jobs.py`, `src/app/email.py`, and `tests/integration/test_jobs.py`. Remove the `jobs.defer` call from registration, the `worker` command, and the `worker` service in Compose. Then drop procrastinate's tables in a new migration, and run `uv remove procrastinate`.
 
 ## Remove tracing
 

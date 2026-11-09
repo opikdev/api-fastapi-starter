@@ -63,8 +63,8 @@ async def create_user(body: Credentials, session: DbSession, request: Request) -
     row = (await session.execute(statement)).one_or_none()
     if row is None:
         raise ProblemError(Slug.EMAIL_TAKEN, f"{email} is already registered. Log in instead.")
+    await jobs.defer(session, jobs.send_welcome_email, user_id=str(row[0]))
     await session.commit()
-    await jobs.send_welcome_email.defer_async(user_id=str(row[0]))
     return present(row[0], row[1], row[2])
 
 

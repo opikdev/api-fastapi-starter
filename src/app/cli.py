@@ -13,7 +13,7 @@ from alembic import command
 from alembic.config import Config
 
 from app import jobs
-from app.config import ConfigError, load_settings
+from app.config import ConfigError, load_seed_settings, load_settings
 from app.db import create_engine
 from app.log import configure_logging
 from app.main import create_app
@@ -55,14 +55,15 @@ def _migrate() -> None:
 
 
 def _seed() -> None:
-    if os.environ.get("APP_ENV") == "production" and os.environ.get("SEED_DEMO_DATA") != "true":
+    settings = load_seed_settings()
+    if settings.app_env == "production" and not settings.seed_demo_data:
         raise ConfigError("Refusing to seed: APP_ENV is production and SEED_DEMO_DATA is not true.")
-    url = os.environ.get("MIGRATION_DATABASE_URL") or os.environ.get("DATABASE_URL")
-    if not url:
+    url = settings.migration_database_url or settings.database_url
+    if url is None:
         raise ConfigError("Set MIGRATION_DATABASE_URL or DATABASE_URL.")
 
     async def run() -> bool:
-        engine = create_engine(url)
+        engine = create_engine(str(url))
         try:
             return await seed(engine)
         finally:
@@ -78,14 +79,7 @@ def _worker() -> None:
     settings = load_settings()
     configure_logging(settings.log_level)
 
-    async def run() -> None:
-        try:
-            async with jobs.queue.open_async():
-                await jobs.queue.run_worker_async(install_signal_handlers=True)
-        finally:
-            await jobs.close()
-
-    asyncio.run(run())
+    asyncio.run(jobs.run_worker(settings, install_signal_handlers=True))
 
 
 def _healthcheck() -> None:

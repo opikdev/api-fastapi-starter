@@ -15,6 +15,8 @@ All notable changes to this repo are recorded here. The format follows [Keep a C
 
 ### Fixed
 
+- Registration queues the welcome email in the same transaction as the user. A queueing failure used to return 500 but keep the user, so a retry got 409 and no email ever went out.
+- Jobs and `seed` read their settings through `Settings` when they start, not from `os.environ` when `app.jobs` is imported. Jobs get the database from `context.additional_context`, and the API no longer opens a queue pool.
 - Password hashing and checks run in a thread, so registration and login no longer block other requests.
 - Migration `0001` creates procrastinate's tables from a frozen copy of its 3.10.0 schema instead of the installed package, so upgrading procrastinate no longer changes what `0001` does. The SQL is identical, and a test fails when the installed procrastinate is ahead of the migrations.
 

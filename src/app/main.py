@@ -13,7 +13,6 @@ from opentelemetry.sdk.trace import SpanProcessor
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 from starlette.exceptions import HTTPException
 
-from app import jobs
 from app.config import Settings
 from app.db import create_engine
 from app.features.auth.routes import router as auth_router
@@ -102,8 +101,7 @@ def create_app(
 
     @contextlib.asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        async with jobs.queue.open_async():
-            yield
+        yield
         await engine.dispose()
         if provider is not None:
             provider.shutdown()

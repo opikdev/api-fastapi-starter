@@ -32,5 +32,5 @@ Paths are under `src/app/`.
 - **Authorization:** every note query filters by the caller's user ID, so another user's note looks like it doesn't exist.
 - **Concurrency:** updates need an `If-Match` version, and the check happens inside the `UPDATE` statement.
 - **Idempotency:** the key and the note are written in one transaction. A concurrent duplicate waits for the first to commit, then replays it.
-- **Jobs:** the API defers jobs into Postgres, and the worker runs them with retries. Jobs can run more than once, so each one is safe to retry.
+- **Jobs:** the API defers jobs into Postgres in the request's transaction, so a job exists only if its data does. The worker runs them with retries. Jobs can run more than once, so each one is safe to retry.
 - **Database roles:** the API and worker connect as `api_app`, which can read and write rows but can't change the schema. Migrations run as `api_owner`.

@@ -23,11 +23,21 @@ class Settings(BaseSettings):
     session_ttl_hours: int = Field(default=168, ge=1, le=8760)
     rate_limit_per_minute: int = Field(default=300, ge=1)
     auth_rate_limit_per_minute: int = Field(default=10, ge=1)
-    app_env: str = ""
 
     @property
     def origins(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+
+
+class SeedSettings(BaseSettings):
+    """What `seed` reads. It runs before the API, often with only the owner role's URL."""
+
+    model_config = SettingsConfigDict(extra="ignore", case_sensitive=False, env_ignore_empty=True)
+
+    migration_database_url: PostgresDsn | None = None
+    database_url: PostgresDsn | None = None
+    app_env: str = ""
+    seed_demo_data: bool = False
 
 
 def database_url(url: str) -> str:
@@ -39,10 +49,18 @@ def database_url(url: str) -> str:
 
 
 def load_settings(env: dict[str, str] | None = None) -> Settings:
+    return _load(Settings, env)
+
+
+def load_seed_settings(env: dict[str, str] | None = None) -> SeedSettings:
+    return _load(SeedSettings, env)
+
+
+def _load[T: BaseSettings](model: type[T], env: dict[str, str] | None) -> T:
     try:
         if env is None:
-            return Settings()
-        return Settings.model_validate({key.lower(): value for key, value in env.items() if value})
+            return model()
+        return model.model_validate({key.lower(): value for key, value in env.items() if value})
     except ValidationError as error:
         fields = [
             f"{'.'.join(str(part) for part in issue['loc']).upper()}: {issue['msg']}"

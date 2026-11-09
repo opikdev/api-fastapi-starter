@@ -19,8 +19,9 @@ Set these on the API process. `.env.example` lists every option with a safe defa
 | `AUTH_RATE_LIMIT_PER_MINUTE` | number | `10` | Per client, on registration and login |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | URL | Empty | Turns on trace and error export |
 | `APP_ENV` | string | Empty | Set to `production` to stop `seed` from adding demo data |
+| `SEED_DEMO_DATA` | boolean | `false` | Set to `true` to let `seed` run when `APP_ENV` is `production` |
 
-The worker reads `DATABASE_URL` and `LOG_LEVEL` too.
+The worker reads `DATABASE_URL`, `LOG_LEVEL`, `DATABASE_STATEMENT_TIMEOUT_MS`, and `DATABASE_POOL_MAX` too. `seed` reads `MIGRATION_DATABASE_URL` or `DATABASE_URL`, `APP_ENV`, and `SEED_DEMO_DATA`.
 
 Set `TRUST_PROXY` correctly, or every client behind a load balancer shares one rate limit.
 

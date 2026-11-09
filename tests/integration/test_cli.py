@@ -71,6 +71,22 @@ def test_seed_refuses_to_run_in_production(database: Database) -> None:
     assert "Refusing to seed" in result.stderr
 
 
+def test_seed_runs_in_production_when_demo_data_is_allowed(database: Database) -> None:
+    result = run(
+        "seed",
+        MIGRATION_DATABASE_URL=database.owner_url,
+        APP_ENV="production",
+        SEED_DEMO_DATA="true",
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_seed_explains_a_missing_url() -> None:
+    result = run("seed", MIGRATION_DATABASE_URL="", DATABASE_URL="")
+    assert result.returncode == 2
+    assert "Set MIGRATION_DATABASE_URL or DATABASE_URL" in result.stderr
+
+
 def test_prints_the_openapi_document() -> None:
     result = run("openapi", DATABASE_URL="")
     assert json.loads(result.stdout)["info"]["title"] == "API FastAPI starter"
