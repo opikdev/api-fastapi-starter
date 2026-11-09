@@ -17,6 +17,8 @@ All notable changes to this repo are recorded here. The format follows [Keep a C
 
 ### Fixed
 
+- An expired `Idempotency-Key` creates a new note instead of replaying the old one, as it did until the hourly cleanup removed it.
+- Idempotency keys are scoped to the endpoint as well as the user, so an endpoint that adds idempotency can't replay another's response. Migration `0003` changes the key's unique constraint. Idempotent `POST /v1/notes` requests on the old version fail until the new version is rolled out, so deploy both together.
 - `LOG_LEVEL=warn`, as documented, no longer stops the API from starting. `warning` still works.
 - Registration queues the welcome email in the same transaction as the user. A queueing failure used to return 500 but keep the user, so a retry got 409 and no email ever went out.
 - Jobs and `seed` read their settings through `Settings` when they start, not from `os.environ` when `app.jobs` is imported. Jobs get the database from `context.additional_context`, and the API no longer opens a queue pool.

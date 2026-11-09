@@ -31,6 +31,6 @@ Paths are under `src/app/`.
 - **Errors:** every failure is RFC 9457 Problem Details. Unexpected errors are logged and recorded on the trace, and the client only sees a request ID.
 - **Authorization:** every note query filters by the caller's user ID, so another user's note looks like it doesn't exist.
 - **Concurrency:** updates need an `If-Match` version, and the check happens inside the `UPDATE` statement.
-- **Idempotency:** the key and the note are written in one transaction. A concurrent duplicate waits for the first to commit, then replays it.
+- **Idempotency:** the key and the note are written in one transaction. A concurrent duplicate waits for the first to commit, then replays it. Keys are scoped to the user and the endpoint, and expire after 24 hours, after which the key creates a new note.
 - **Jobs:** the API defers jobs into Postgres in the request's transaction, so a job exists only if its data does. The worker runs them with retries. Jobs can run more than once, so each one is safe to retry.
 - **Database roles:** the API and worker connect as `api_app`, which can read and write rows but can't change the schema. Migrations run as `api_owner`.

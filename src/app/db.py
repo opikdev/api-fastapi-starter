@@ -92,10 +92,11 @@ class Note(Base):
 
 class IdempotencyKey(Base):
     __tablename__ = "idempotency_keys"
-    __table_args__ = (UniqueConstraint("user_id", "key"), Index(None, "expires_at"))
+    __table_args__ = (UniqueConstraint("user_id", "endpoint", "key"), Index(None, "expires_at"))
 
     id: Mapped[UUID] = _id()
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    endpoint: Mapped[str] = mapped_column(Text)
     key: Mapped[str] = mapped_column(Text)
     request_hash: Mapped[str] = mapped_column(Text)
     response_body: Mapped[dict[str, Any]] = mapped_column(JSONB)
