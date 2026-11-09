@@ -1,11 +1,9 @@
-"""Tables, the engine, and the session each request uses."""
+"""Tables and the engine. Request-scoped sessions live in `app.dependencies`."""
 
-from collections.abc import AsyncIterator
 from datetime import datetime
-from typing import Annotated, Any
+from typing import Any
 from uuid import UUID
 
-from fastapi import Depends, Request
 from sqlalchemy import (
     CheckConstraint,
     DateTime,
@@ -18,12 +16,7 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.ext.asyncio import (
-    AsyncEngine,
-    AsyncSession,
-    async_sessionmaker,
-    create_async_engine,
-)
+from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from app.config import database_url
@@ -130,12 +123,3 @@ def create_engine(url: str, statement_timeout_ms: int = 5000) -> AsyncEngine:
             "options": f"-c statement_timeout={statement_timeout_ms}",
         },
     )
-
-
-async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
-    sessions: async_sessionmaker[AsyncSession] = request.app.state.sessions
-    async with sessions() as session:
-        yield session
-
-
-DbSession = Annotated[AsyncSession, Depends(get_session)]

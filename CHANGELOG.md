@@ -4,6 +4,11 @@ All notable changes to this repo are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Changed
+
+- `DbSession` and `get_session` moved from `app.db` to `app.dependencies`, so jobs no longer load FastAPI through `app.db`. Update imports in your features.
+- `tests/unit/test_architecture.py` finds every feature on its own and checks that jobs never load FastAPI, even indirectly. Ruff now bans relative imports.
+
 ## [0.1.0] - 2026-11-08
 
 ### Added

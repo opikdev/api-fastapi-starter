@@ -13,7 +13,8 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db import DbSession, IdempotencyKey, Note
+from app.db import IdempotencyKey, Note
+from app.dependencies import DbSession
 from app.features.auth.dependencies import Authenticated
 from app.ids import Prefix, format_id, parse_id
 from app.problems import ProblemError, Slug, invalid, responses

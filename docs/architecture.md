@@ -17,13 +17,13 @@ Paths are under `src/app/`.
 | Layer | Path | Does | Must not |
 |---|---|---|---|
 | Entry point | `cli.py`, `asgi.py` | Runs serve, migrate, seed, worker, and healthcheck | Hold business logic |
-| App | `main.py`, `middleware.py` | Wires middleware, error handlers, and routes | Touch tables directly |
+| App | `main.py`, `middleware.py`, `dependencies.py` | Wires middleware, error handlers, routes, and each request's database session | Touch tables directly |
 | Features | `features/*/routes.py` | Define the HTTP contract, validate input, and run queries | Import another feature, except `auth.dependencies` |
-| Jobs | `jobs.py`, `email.py` | Background tasks and their schedules | Import a feature or FastAPI |
+| Jobs | `jobs.py`, `email.py` | Background tasks and their schedules | Import a feature or FastAPI, even through another module |
 | Platform | `problems.py`, `ratelimit.py`, `security.py`, `ids.py`, `config.py` | Errors, limits, hashing, IDs, and settings | Import a feature |
-| Database | `db.py`, `migrations/` | Tables, the engine, and migrations | Import a feature |
+| Database | `db.py`, `migrations/` | Tables, the engine, and migrations | Import a feature or FastAPI |
 
-`tests/unit/test_architecture.py` fails the build when an import breaks these rules.
+`tests/unit/test_architecture.py` fails the build when an import breaks these rules. It finds every folder in `features/` on its own, and Ruff bans relative imports so it sees each one.
 
 ## Key behaviors
 

@@ -10,7 +10,8 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import func, select
 
 from app import ratelimit
-from app.db import DbSession, Session, User
+from app.db import Session, User
+from app.dependencies import DbSession
 from app.problems import ProblemError, Slug
 from app.security import hash_token
 

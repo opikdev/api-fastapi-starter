@@ -5,7 +5,7 @@ from typing import Literal
 from fastapi import APIRouter
 from sqlalchemy import text
 
-from app.db import DbSession
+from app.dependencies import DbSession
 from app.problems import ProblemError, Slug, responses
 from app.schema import ApiModel
 

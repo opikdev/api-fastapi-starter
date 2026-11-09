@@ -9,7 +9,8 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert
 
 from app import jobs
-from app.db import DbSession, Session, User
+from app.db import Session, User
+from app.dependencies import DbSession
 from app.features.auth.dependencies import Authenticated, auth_rate_limit
 from app.ids import Prefix, format_id
 from app.problems import ProblemError, Slug, responses
