@@ -6,6 +6,7 @@ All notable changes to this repo are recorded here. The format follows [Keep a C
 
 ### Added
 
+- A dev container with Postgres, migrations, seed data, `jq`, and `TEST_DATABASE_URL`, so `make verify` runs inside it.
 - `scripts/check-migrations.sh`, run by `make verify` and CI, which fails when a committed migration is changed, renamed, or deleted.
 - A test that fails when `docs/errors.md` and the problem catalog list different types.
 - Migration `0002`, which indexes `sessions.user_id`, so deleting a user doesn't scan every session. On a large `sessions` table, build it concurrently first, as `docs/operations.md` explains.

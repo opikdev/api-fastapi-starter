@@ -1,0 +1,9 @@
+{
+  "name": "api-fastapi-starter",
+  "dockerComposeFile": ["../compose.yaml", "compose.yaml"],
+  "service": "dev",
+  "runServices": ["db", "migrate", "seed"],
+  "workspaceFolder": "/workspace",
+  "forwardPorts": [3000],
+  "postCreateCommand": "apt-get update && apt-get install --yes --no-install-recommends jq && pip install --root-user-action=ignore uv==0.13.7 && git config --global --add safe.directory /workspace && uv sync --locked && (test -f .env || cp .env.example .env)"
+}
