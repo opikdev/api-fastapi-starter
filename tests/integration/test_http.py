@@ -186,6 +186,17 @@ async def test_cors_allows_a_listed_origin_and_answers_a_preflight(database: Dat
         )
         other = await client.http.get("/v1/notes", headers={"Origin": "https://evil.example"})
     assert simple.headers["access-control-allow-origin"] == origin
+    exposed = {name.strip() for name in simple.headers["access-control-expose-headers"].split(",")}
+    assert exposed == {
+        "ETag",
+        "Location",
+        "X-Request-Id",
+        "Retry-After",
+        "RateLimit-Limit",
+        "RateLimit-Remaining",
+        "RateLimit-Reset",
+        "Idempotency-Replayed",
+    }
     assert preflight.status_code == 204
     assert "Idempotency-Key" in preflight.headers["access-control-allow-headers"]
     assert "access-control-allow-origin" not in other.headers

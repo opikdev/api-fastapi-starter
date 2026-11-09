@@ -24,6 +24,20 @@ SECURITY_HEADERS = {
     "Cross-Origin-Resource-Policy": "same-origin",
 }
 
+# Response headers a browser script may read. Browsers hide every other non-basic header.
+EXPOSED_HEADERS = ", ".join(
+    [
+        "ETag",
+        "Location",
+        "X-Request-Id",
+        "Retry-After",
+        "RateLimit-Limit",
+        "RateLimit-Remaining",
+        "RateLimit-Reset",
+        "Idempotency-Replayed",
+    ]
+)
+
 request_id: ContextVar[str] = ContextVar("request_id", default="")
 logger = logging.getLogger("app.http")
 
@@ -114,7 +128,6 @@ class Cors:
                             b"access-control-allow-headers",
                             b"Authorization, Content-Type, Idempotency-Key, If-Match",
                         ),
-                        (b"access-control-expose-headers", b"ETag, Location, Retry-After"),
                     ],
                 }
             )
@@ -125,6 +138,7 @@ class Cors:
             if message["type"] == "http.response.start":
                 headers = MutableHeaders(scope=message)
                 headers["Access-Control-Allow-Origin"] = origin
+                headers["Access-Control-Expose-Headers"] = EXPOSED_HEADERS
                 headers.append("Vary", "Origin")
             await send(message)
 
