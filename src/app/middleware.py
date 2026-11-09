@@ -24,6 +24,20 @@ SECURITY_HEADERS = {
     "Cross-Origin-Resource-Policy": "same-origin",
 }
 
+# Response headers a browser script may read. Browsers hide every other non-basic header.
+EXPOSED_HEADERS = ", ".join(
+    [
+        "ETag",
+        "Location",
+        "X-Request-Id",
+        "Retry-After",
+        "RateLimit-Limit",
+        "RateLimit-Remaining",
+        "RateLimit-Reset",
+        "Idempotency-Replayed",
+    ]
+)
+
 request_id: ContextVar[str] = ContextVar("request_id", default="")
 logger = logging.getLogger("app.http")
 
@@ -114,7 +128,6 @@ class Cors:
                             b"access-control-allow-headers",
                             b"Authorization, Content-Type, Idempotency-Key, If-Match",
                         ),
-                        (b"access-control-expose-headers", b"ETag, Location, Retry-After"),
                     ],
                 }
             )
@@ -125,6 +138,7 @@ class Cors:
             if message["type"] == "http.response.start":
                 headers = MutableHeaders(scope=message)
                 headers["Access-Control-Allow-Origin"] = origin
+                headers["Access-Control-Expose-Headers"] = EXPOSED_HEADERS
                 headers.append("Vary", "Origin")
             await send(message)
 
@@ -158,12 +172,12 @@ class GuardV1:
         app: ASGIApp,
         sessions: async_sessionmaker[AsyncSession],
         limit: int,
-        trust_proxy: bool,
+        proxy_hops: int,
     ) -> None:
         self.app = app
         self.sessions = sessions
         self.limit = limit
-        self.trust_proxy = trust_proxy
+        self.proxy_hops = proxy_hops
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http" or not scope["path"].startswith("/v1/"):
@@ -172,7 +186,7 @@ class GuardV1:
         headers = Headers(scope=scope)
         try:
             async with self.sessions() as session:
-                ip = ratelimit.client_ip(HTTPConnection(scope), self.trust_proxy)
+                ip = ratelimit.client_ip(HTTPConnection(scope), self.proxy_hops)
                 limit_headers = await ratelimit.hit(session, f"global:{ip}", self.limit)
             self._check_body(scope, headers)
         except ProblemError as problem:

@@ -28,6 +28,7 @@ check-generated: client
 	git diff --exit-code -- openapi.json clients/python
 
 verify: lint check-generated test
+	scripts/check-migrations.sh
 	.agents/check.sh
 	.github/scripts/check-repo-standards.sh
 

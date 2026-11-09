@@ -69,10 +69,6 @@ class ProblemError(Exception):
     errors: list[FieldError] | None = None
     headers: dict[str, str] = field(default_factory=dict)
 
-    @property
-    def status(self) -> int:
-        return CATALOG[self.slug][0]
-
     def response(self, instance: str) -> JSONResponse:
         status, title = CATALOG[self.slug]
         body = ProblemBody(

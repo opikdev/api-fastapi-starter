@@ -73,6 +73,8 @@ Tests start their own Postgres, so Docker must be running. Without Docker, point
 TEST_DATABASE_URL=postgresql://<SUPERUSER>@localhost:5432/postgres make verify
 ```
 
+The dev container in `.devcontainer/` runs Postgres next to the code and sets `TEST_DATABASE_URL`, so `make verify` works inside it. `make e2e` needs Docker, so run it on the host.
+
 Each run creates a temporary database and drops it afterward, so existing data is never touched. To add a feature, rename the project, or remove a module, see [Customize the starter](docs/customize.md). Before you deploy, read [Operate the API](docs/operations.md).
 
 ## Project structure

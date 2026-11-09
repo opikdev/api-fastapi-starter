@@ -7,13 +7,14 @@ from datetime import datetime, timedelta
 from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import APIRouter, Header, Query, Response, status
+from fastapi import APIRouter, Header, Query, Request, Response, status
 from pydantic import Field
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db import DbSession, IdempotencyKey, Note
+from app.db import IdempotencyKey, Note
+from app.dependencies import DbSession
 from app.features.auth.dependencies import Authenticated
 from app.ids import Prefix, format_id, parse_id
 from app.problems import ProblemError, Slug, invalid, responses
@@ -98,6 +99,7 @@ async def create_note(
     body: CreateNote,
     user: Authenticated,
     session: DbSession,
+    request: Request,
     response: Response,
     idempotency_key: Annotated[
         str | None,
@@ -113,7 +115,10 @@ async def create_note(
     if not title:
         raise invalid("title", "must not be blank")
 
-    note, replayed = await create_idempotently(session, user.id, idempotency_key, title, body.body)
+    endpoint = f"{request.method} {request.scope['route'].path}"
+    note, replayed = await create_idempotently(
+        session, user.id, endpoint, idempotency_key, title, body.body
+    )
     response.headers["ETag"] = etag(note.version)
     response.headers["Location"] = f"/v1/notes/{note.id}"
     if replayed:
@@ -122,10 +127,11 @@ async def create_note(
 
 
 async def create_idempotently(
-    session: AsyncSession, user_id: UUID, key: str | None, title: str, body: str
+    session: AsyncSession, user_id: UUID, endpoint: str, key: str | None, title: str, body: str
 ) -> tuple[NoteOut, bool]:
     """Writes the key and the note in one transaction, so a retry replays instead of duplicating.
 
+    Keys are scoped to the user and the endpoint, and an expired key is claimed again as new.
     A concurrent duplicate waits on the key's unique index until the first commits, then replays it.
     """
     claim: UUID | None = None
@@ -133,25 +139,39 @@ async def create_idempotently(
         request_hash = hashlib.sha256(
             json.dumps({"title": title, "body": body}, separators=(",", ":")).encode()
         ).hexdigest()
+        statement = insert(IdempotencyKey).values(
+            user_id=user_id,
+            endpoint=endpoint,
+            key=key,
+            request_hash=request_hash,
+            response_body={},
+            expires_at=func.now() + IDEMPOTENCY_TTL,
+        )
         claim = (
             await session.execute(
-                insert(IdempotencyKey)
-                .values(
-                    user_id=user_id,
-                    key=key,
-                    request_hash=request_hash,
-                    response_body={},
-                    expires_at=func.now() + IDEMPOTENCY_TTL,
-                )
-                .on_conflict_do_nothing(index_elements=[IdempotencyKey.user_id, IdempotencyKey.key])
-                .returning(IdempotencyKey.id)
+                statement.on_conflict_do_update(
+                    index_elements=[
+                        IdempotencyKey.user_id,
+                        IdempotencyKey.endpoint,
+                        IdempotencyKey.key,
+                    ],
+                    set_={
+                        "request_hash": statement.excluded.request_hash,
+                        "response_body": statement.excluded.response_body,
+                        "expires_at": statement.excluded.expires_at,
+                        "updated_at": func.now(),
+                    },
+                    where=IdempotencyKey.expires_at <= func.now(),
+                ).returning(IdempotencyKey.id)
             )
         ).scalar_one_or_none()
         if claim is None:
             original = (
                 await session.execute(
                     select(IdempotencyKey).where(
-                        IdempotencyKey.user_id == user_id, IdempotencyKey.key == key
+                        IdempotencyKey.user_id == user_id,
+                        IdempotencyKey.endpoint == endpoint,
+                        IdempotencyKey.key == key,
                     )
                 )
             ).scalar_one()

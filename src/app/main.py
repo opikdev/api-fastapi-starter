@@ -13,7 +13,6 @@ from opentelemetry.sdk.trace import SpanProcessor
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 from starlette.exceptions import HTTPException
 
-from app import jobs
 from app.config import Settings
 from app.db import create_engine
 from app.features.auth.routes import router as auth_router
@@ -92,7 +91,9 @@ def create_app(
     span_processor: SpanProcessor | None = None,
 ) -> FastAPI:
     engine = engine or create_engine(
-        str(settings.database_url), settings.database_statement_timeout_ms
+        str(settings.database_url),
+        settings.database_statement_timeout_ms,
+        settings.database_pool_max,
     )
     sessions = async_sessionmaker(engine, expire_on_commit=False)
 
@@ -100,8 +101,7 @@ def create_app(
 
     @contextlib.asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        async with jobs.queue.open_async():
-            yield
+        yield
         await engine.dispose()
         if provider is not None:
             provider.shutdown()
@@ -126,7 +126,7 @@ def create_app(
         GuardV1,
         sessions=sessions,
         limit=settings.rate_limit_per_minute,
-        trust_proxy=settings.trust_proxy,
+        proxy_hops=settings.trust_proxy_hops,
     )
     app.add_middleware(HeadAsGet)
     app.add_middleware(Cors, origins=settings.origins)

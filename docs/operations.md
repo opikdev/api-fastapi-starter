@@ -9,19 +9,21 @@ Set these on the API process. `.env.example` lists every option with a safe defa
 | `DATABASE_URL` | URL | Required | Connection for the `api_app` role |
 | `MIGRATION_DATABASE_URL` | URL | Required for `migrate` | Connection for the `api_owner` role |
 | `PORT` | number | `3000` | Listen port |
-| `LOG_LEVEL` | string | `info` | `debug`, `info`, `warn`, or `error` |
+| `LOG_LEVEL` | string | `info` | `debug`, `info`, `warn`, `warning`, or `error`. `warn` and `warning` are the same |
 | `DATABASE_STATEMENT_TIMEOUT_MS` | number | `5000` | Cancels slow queries |
+| `DATABASE_POOL_MAX` | number | `10` | Database connections per process. Keep the total across processes under Postgres's `max_connections` |
 | `CORS_ORIGINS` | list | Empty | Comma-separated browser origins. Empty disables CORS |
-| `TRUST_PROXY` | boolean | `false` | Set to `true` only behind a proxy that appends to `X-Forwarded-For` |
+| `TRUST_PROXY_HOPS` | number | `0` | How many proxies in front of the API append to `X-Forwarded-For`. `0` ignores the header and uses the socket address |
 | `SESSION_TTL_HOURS` | number | `168` | Session lifetime |
 | `RATE_LIMIT_PER_MINUTE` | number | `300` | Per client, across `/v1` |
 | `AUTH_RATE_LIMIT_PER_MINUTE` | number | `10` | Per client, on registration and login |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | URL | Empty | Turns on trace and error export |
 | `APP_ENV` | string | Empty | Set to `production` to stop `seed` from adding demo data |
+| `SEED_DEMO_DATA` | boolean | `false` | Set to `true` to let `seed` run when `APP_ENV` is `production` |
 
-The worker reads `DATABASE_URL` and `LOG_LEVEL` too.
+The worker reads `DATABASE_URL`, `LOG_LEVEL`, `DATABASE_STATEMENT_TIMEOUT_MS`, and `DATABASE_POOL_MAX` too. `seed` reads `MIGRATION_DATABASE_URL` or `DATABASE_URL`, `APP_ENV`, and `SEED_DEMO_DATA`.
 
-Set `TRUST_PROXY` correctly, or every client behind a load balancer shares one rate limit.
+Set `TRUST_PROXY_HOPS` to the number of proxies you run, such as `1` behind one load balancer. Too low, and every client behind it shares one rate limit. Too high, and clients can forge `X-Forwarded-For` to dodge it. The API takes the address that many entries from the right, the leftmost if there are fewer, and the socket address if that entry isn't an IP address. `TRUST_PROXY` was replaced by it, and the API refuses to start while `TRUST_PROXY` is set.
 
 ## Set up production roles
 
@@ -29,7 +31,7 @@ Replace the dev passwords in `docker/postgres/init.sql`. Run the file once as th
 
 ## Deploy
 
-Pushing a `vX.Y.Z` tag publishes an image for amd64 and arm64 to `ghcr.io`. The image's entry point runs every step, so deploy in this order:
+Pushing a `vX.Y.Z` tag runs lint and tests, then publishes an image for amd64 and arm64 to `ghcr.io`. The image's entry point runs every step, so deploy in this order:
 
 1. Run the image with the `migrate` command and `MIGRATION_DATABASE_URL` set to the owner role.
 2. Roll out the new image with `DATABASE_URL` set to `api_app`, for both the API and the `worker` command.
@@ -41,11 +43,16 @@ Use `/healthz` for liveness, or the image's built-in `HEALTHCHECK`. It stays 200
 
 ## Change the schema safely
 
-Treat migrations as append-only and forward-only. Each Alembic revision has a `downgrade` for local use, but in production, undo a change with a new migration, or restore from a backup if data was lost.
+Treat migrations as append-only and forward-only. `scripts/check-migrations.sh`, part of `make verify` and CI, fails when a revision that's on `main` was changed, renamed, or deleted. Each Alembic revision has a `downgrade` for local use, but in production, undo a change with a new migration, or restore from a backup if data was lost.
 
 - Rename or retype a column in steps: add the new one, backfill, switch the code, then drop the old one in a later deploy.
-- Use `CREATE INDEX CONCURRENTLY` on large tables, inside `op.get_context().autocommit_block()`.
-- When you upgrade procrastinate, apply its SQL migrations in a new Alembic revision. Its release notes list them.
+- Use `CREATE INDEX CONCURRENTLY` on large tables, so writes keep flowing while the index builds. In a migration, wrap `op.create_index(..., postgresql_concurrently=True)` in `with op.get_context().autocommit_block():`, because it can't run inside a transaction.
+- The starter's own index migrations, such as `0002` for `idx_sessions_user_id`, build normally and lock writes to the table while they run. That's instant on a new project. If the table is already large, build the index first as the owner role, and the migration then skips it:
+
+  ```sql
+  CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_sessions_user_id ON sessions (user_id);
+  ```
+- Migration `0001` creates procrastinate's tables from a frozen copy of its 3.10.0 schema, `0001_procrastinate_3.10.0.sql`, so it means the same thing on every install. When you upgrade procrastinate, add a revision that runs its upgrade scripts for each version in between, in order, from the folder `uv run procrastinate schema --migrations-path` prints. Run `pre` scripts before the new code deploys and `post` scripts after, as its release notes say. Then bump `MIGRATED_TO` in `tests/unit/test_migrations.py`, which fails until you do.
 - Read the SQL before merging, because a small diff can take a long lock.
 
 ## Back up the database

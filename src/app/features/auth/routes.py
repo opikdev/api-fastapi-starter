@@ -4,12 +4,14 @@ from datetime import datetime, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request, Response, status
+from fastapi.concurrency import run_in_threadpool
 from pydantic import EmailStr, Field
 from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert
 
 from app import jobs
-from app.db import DbSession, Session, User
+from app.db import Session, User
+from app.dependencies import DbSession
 from app.features.auth.dependencies import Authenticated, auth_rate_limit
 from app.ids import Prefix, format_id
 from app.problems import ProblemError, Slug, responses
@@ -49,19 +51,20 @@ def present(user_id: object, email: str, created_at: datetime) -> UserOut:
     dependencies=[Depends(auth_rate_limit)],
     responses=responses(Slug.VALIDATION_FAILED, Slug.EMAIL_TAKEN, Slug.RATE_LIMITED),
 )
-async def create_user(body: Credentials, session: DbSession, request: Request) -> UserOut:
+async def create_user(body: Credentials, session: DbSession) -> UserOut:
     email = body.email.lower()
+    password_hash = await run_in_threadpool(hash_password, body.password)
     statement = (
         insert(User)
-        .values(email=email, password_hash=hash_password(body.password))
+        .values(email=email, password_hash=password_hash)
         .on_conflict_do_nothing(index_elements=[User.email])
         .returning(User.id, User.email, User.created_at)
     )
     row = (await session.execute(statement)).one_or_none()
     if row is None:
         raise ProblemError(Slug.EMAIL_TAKEN, f"{email} is already registered. Log in instead.")
+    await jobs.defer(session, jobs.send_welcome_email, user_id=str(row[0]))
     await session.commit()
-    await jobs.send_welcome_email.defer_async(user_id=str(row[0]))
     return present(row[0], row[1], row[2])
 
 
@@ -80,7 +83,9 @@ async def create_session(
         await session.execute(select(User).where(User.email == body.email.lower()))
     ).scalar_one_or_none()
     # Verify against a dummy hash for unknown emails, so both answers take the same time.
-    matches = verify_password(body.password, user.password_hash if user else DUMMY_HASH)
+    matches = await run_in_threadpool(
+        verify_password, body.password, user.password_hash if user else DUMMY_HASH
+    )
     if user is None or not matches:
         raise ProblemError(Slug.INVALID_CREDENTIALS, "The email or password is wrong.")
 

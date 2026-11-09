@@ -1,5 +1,6 @@
 import asyncio
 
+import psycopg
 import pytest
 
 from tests.conftest import Database
@@ -303,3 +304,44 @@ async def test_idempotency_creates_a_new_note_each_time_without_a_key(database: 
             await user.create_note("Same")
         listed = (await user.request("GET", "/v1/notes")).json()["data"]
     assert len(listed) == 2
+
+
+async def test_idempotency_treats_an_expired_key_as_new(
+    database: Database, owner: psycopg.AsyncConnection
+) -> None:
+    async with api(database) as client:
+        user = await client.sign_up()
+        headers = {"Idempotency-Key": "expiring"}
+        first = await user.request("POST", "/v1/notes", json={"title": "A"}, headers=headers)
+        await owner.execute(
+            "update idempotency_keys set expires_at = now() - interval '1 second' where key = %s",
+            ["expiring"],
+        )
+        same_body = await user.request("POST", "/v1/notes", json={"title": "A"}, headers=headers)
+        other_body = await user.request("POST", "/v1/notes", json={"title": "B"}, headers=headers)
+        listed = (await user.request("GET", "/v1/notes")).json()["data"]
+    assert same_body.status_code == 201
+    assert "idempotency-replayed" not in same_body.headers
+    assert same_body.json()["id"] != first.json()["id"]
+    assert_problem(other_body, 422, "idempotency-key-reused")
+    assert len(listed) == 2
+
+
+async def test_idempotency_never_replays_another_endpoints_response(
+    database: Database, owner: psycopg.AsyncConnection
+) -> None:
+    async with api(database) as client:
+        user = await client.sign_up()
+        await owner.execute(
+            "insert into idempotency_keys (user_id, endpoint, key, request_hash, response_body, "
+            "expires_at) select id, 'POST /v1/projects', 'shared', 'other', '{\"id\": \"prj_1\"}', "
+            "now() + interval '1 hour' from users where email = %s",
+            [user.email],
+        )
+        headers = {"Idempotency-Key": "shared"}
+        created = await user.request("POST", "/v1/notes", json={"title": "X"}, headers=headers)
+        retried = await user.request("POST", "/v1/notes", json={"title": "X"}, headers=headers)
+    assert created.status_code == 201, created.text
+    assert created.json()["id"].startswith("note_")
+    assert "idempotency-replayed" not in created.headers
+    assert retried.json()["id"] == created.json()["id"]

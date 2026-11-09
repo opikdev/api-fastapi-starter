@@ -64,10 +64,12 @@ def settings(database: Database, **overrides: str) -> Settings:
 
 
 @contextlib.asynccontextmanager
-async def api(database: Database, **overrides: str) -> AsyncIterator[Api]:
+async def api(
+    database: Database, connector: InMemoryConnector | None = None, **overrides: str
+) -> AsyncIterator[Api]:
     """Runs the app with its lifespan, and an in-memory queue that records deferred jobs."""
     app = create_app(settings(database, **overrides))
-    connector = InMemoryConnector()
+    connector = connector or InMemoryConnector()
     with jobs.queue.replace_connector(connector):
         async with (
             app.router.lifespan_context(app),

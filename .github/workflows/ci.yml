@@ -23,6 +23,15 @@ jobs:
           enable-cache: true
       - run: make sync lint check-generated test
 
+  migrations:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The check compares with the merge base of origin/main, so it needs the history.
+          fetch-depth: 0
+      - run: scripts/check-migrations.sh
+
   e2e:
     runs-on: ubuntu-24.04
     steps:

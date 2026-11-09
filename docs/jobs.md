@@ -11,10 +11,12 @@ Run a worker with `make worker` on your machine, or the `worker` service in Comp
 
 ## Add a job
 
-1. Write an async function in `src/app/jobs.py`, decorated with `@queue.task(name="...")`. Give it JSON-serializable arguments, such as IDs, not objects.
-2. Defer it from a route with `await my_job.defer_async(user_id=str(user.id))`.
-3. For a schedule, add `@queue.periodic(cron="...")` above the task, and accept a `timestamp: int` argument.
+1. Write an async function in `src/app/jobs.py`, decorated with `@queue.task(name="...", pass_context=True)`. Take `context: procrastinate.JobContext` first, then JSON-serializable arguments, such as IDs, not objects. Get the database with `job_engine(context)`.
+2. Defer it from a route, before the commit, with `await jobs.defer(session, jobs.my_job, user_id=str(user.id))`.
+3. For a schedule, add `@queue.periodic(cron="...")` above the task, and accept a `timestamp: int` argument after `context`.
 4. Test it through a real worker, as `tests/integration/test_jobs.py` does.
+
+`jobs.defer` queues the job in the request's transaction. The job exists only if the transaction commits, and the transaction fails if the job can't be queued. So registration never creates a user without a welcome email, and a failed registration can be retried. Deferring after the commit instead would leave a user with no job whenever queueing failed.
 
 Make every job safe to run twice, because a worker can crash after doing the work but before marking the job done. Use `queueing_lock` to keep only one copy of a job waiting.
 

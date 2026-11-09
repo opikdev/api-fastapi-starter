@@ -4,9 +4,8 @@ import json
 import logging
 import sys
 from datetime import UTC, datetime
-from typing import Literal
 
-LogLevel = Literal["debug", "info", "warning", "error"]
+from app.config import LogLevel
 
 _STANDARD = set(logging.makeLogRecord({}).__dict__) | {"message", "asctime", "taskName"}
 
@@ -30,7 +29,7 @@ def configure_logging(level: LogLevel) -> None:
     handler.setFormatter(JsonFormatter())
     root = logging.getLogger()
     root.handlers[:] = [handler]
-    root.setLevel(level.upper())
+    root.setLevel("WARNING" if level == "warn" else level.upper())
     for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
         logging.getLogger(name).handlers.clear()
         logging.getLogger(name).propagate = True

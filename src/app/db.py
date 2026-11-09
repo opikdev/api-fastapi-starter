@@ -1,11 +1,9 @@
-"""Tables, the engine, and the session each request uses."""
+"""Tables and the engine. Request-scoped sessions live in `app.dependencies`."""
 
-from collections.abc import AsyncIterator
 from datetime import datetime
-from typing import Annotated, Any
+from typing import Any
 from uuid import UUID
 
-from fastapi import Depends, Request
 from sqlalchemy import (
     CheckConstraint,
     DateTime,
@@ -18,12 +16,7 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.ext.asyncio import (
-    AsyncEngine,
-    AsyncSession,
-    async_sessionmaker,
-    create_async_engine,
-)
+from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from app.config import database_url
@@ -65,7 +58,11 @@ class User(Base):
 
 class Session(Base):
     __tablename__ = "sessions"
-    __table_args__ = (UniqueConstraint("token_hash"), Index(None, "expires_at"))
+    __table_args__ = (
+        UniqueConstraint("token_hash"),
+        Index(None, "expires_at"),
+        Index(None, "user_id"),
+    )
 
     id: Mapped[UUID] = _id()
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
@@ -95,10 +92,11 @@ class Note(Base):
 
 class IdempotencyKey(Base):
     __tablename__ = "idempotency_keys"
-    __table_args__ = (UniqueConstraint("user_id", "key"), Index(None, "expires_at"))
+    __table_args__ = (UniqueConstraint("user_id", "endpoint", "key"), Index(None, "expires_at"))
 
     id: Mapped[UUID] = _id()
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    endpoint: Mapped[str] = mapped_column(Text)
     key: Mapped[str] = mapped_column(Text)
     request_hash: Mapped[str] = mapped_column(Text)
     response_body: Mapped[dict[str, Any]] = mapped_column(JSONB)
@@ -119,10 +117,10 @@ class RateLimit(Base):
     updated_at: Mapped[datetime] = _timestamp()
 
 
-def create_engine(url: str, statement_timeout_ms: int = 5000) -> AsyncEngine:
+def create_engine(url: str, statement_timeout_ms: int = 5000, pool_size: int = 10) -> AsyncEngine:
     return create_async_engine(
         database_url(url),
-        pool_size=10,
+        pool_size=pool_size,
         max_overflow=0,
         pool_pre_ping=True,
         connect_args={
@@ -130,12 +128,3 @@ def create_engine(url: str, statement_timeout_ms: int = 5000) -> AsyncEngine:
             "options": f"-c statement_timeout={statement_timeout_ms}",
         },
     )
-
-
-async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
-    sessions: async_sessionmaker[AsyncSession] = request.app.state.sessions
-    async with sessions() as session:
-        yield session
-
-
-DbSession = Annotated[AsyncSession, Depends(get_session)]
