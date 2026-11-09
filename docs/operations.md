@@ -43,7 +43,7 @@ Use `/healthz` for liveness, or the image's built-in `HEALTHCHECK`. It stays 200
 
 ## Change the schema safely
 
-Treat migrations as append-only and forward-only. Each Alembic revision has a `downgrade` for local use, but in production, undo a change with a new migration, or restore from a backup if data was lost.
+Treat migrations as append-only and forward-only. `scripts/check-migrations.sh`, part of `make verify` and CI, fails when a revision that's on `main` was changed, renamed, or deleted. Each Alembic revision has a `downgrade` for local use, but in production, undo a change with a new migration, or restore from a backup if data was lost.
 
 - Rename or retype a column in steps: add the new one, backfill, switch the code, then drop the old one in a later deploy.
 - Use `CREATE INDEX CONCURRENTLY` on large tables, so writes keep flowing while the index builds. In a migration, wrap `op.create_index(..., postgresql_concurrently=True)` in `with op.get_context().autocommit_block():`, because it can't run inside a transaction.

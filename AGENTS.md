@@ -32,7 +32,7 @@ A production-ready Python API: FastAPI, SQLAlchemy, Alembic, and Postgres, with 
 - If the check blocks you, fix the cause. Never edit `.agents/check.sh`, `.githooks/`, or the harness workflow to get past it, and never use `--no-verify`. If the request can't be done without that, stop and ask.
 - After cloning, run `git config core.hooksPath .githooks` once to turn on the hook.
 - When a route changes, run `make client`, and commit `openapi.json` and `clients/python` in the same change. CI fails otherwise.
-- Change tables in `src/app/db.py`, then autogenerate a migration and read it. Migrations are append-only, so never edit one that's committed. A test fails if the models and migrations disagree.
+- Change tables in `src/app/db.py`, then autogenerate a migration and read it. Migrations are append-only, so never edit, rename, or delete one that's committed. `scripts/check-migrations.sh` fails if you do, and a test fails if the models and migrations disagree.
 - Raise `ProblemError` for every failure, and add new types to `src/app/problems.py` and `docs/errors.md`.
 - Scope every query on a resource to the caller's user ID. Return 404, not 403, for someone else's resource.
 - Features don't import each other, except for `features/auth/dependencies.py`. `tests/unit/test_architecture.py` enforces this.
