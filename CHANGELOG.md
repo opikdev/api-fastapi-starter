@@ -6,6 +6,7 @@ All notable changes to this repo are recorded here. The format follows [Keep a C
 
 ### Added
 
+- Migration `0002`, which indexes `sessions.user_id`, so deleting a user doesn't scan every session. On a large `sessions` table, build it concurrently first, as `docs/operations.md` explains.
 - `DATABASE_POOL_MAX`, the API's database pool size. It defaults to 10, as before.
 
 ### Changed

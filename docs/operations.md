@@ -46,7 +46,12 @@ Use `/healthz` for liveness, or the image's built-in `HEALTHCHECK`. It stays 200
 Treat migrations as append-only and forward-only. Each Alembic revision has a `downgrade` for local use, but in production, undo a change with a new migration, or restore from a backup if data was lost.
 
 - Rename or retype a column in steps: add the new one, backfill, switch the code, then drop the old one in a later deploy.
-- Use `CREATE INDEX CONCURRENTLY` on large tables, inside `op.get_context().autocommit_block()`.
+- Use `CREATE INDEX CONCURRENTLY` on large tables, so writes keep flowing while the index builds. In a migration, wrap `op.create_index(..., postgresql_concurrently=True)` in `with op.get_context().autocommit_block():`, because it can't run inside a transaction.
+- The starter's own index migrations, such as `0002` for `idx_sessions_user_id`, build normally and lock writes to the table while they run. That's instant on a new project. If the table is already large, build the index first as the owner role, and the migration then skips it:
+
+  ```sql
+  CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_sessions_user_id ON sessions (user_id);
+  ```
 - Migration `0001` creates procrastinate's tables from a frozen copy of its 3.10.0 schema, `0001_procrastinate_3.10.0.sql`, so it means the same thing on every install. When you upgrade procrastinate, add a revision that runs its upgrade scripts for each version in between, in order, from the folder `uv run procrastinate schema --migrations-path` prints. Run `pre` scripts before the new code deploys and `post` scripts after, as its release notes say. Then bump `MIGRATED_TO` in `tests/unit/test_migrations.py`, which fails until you do.
 - Read the SQL before merging, because a small diff can take a long lock.
 

@@ -58,7 +58,11 @@ class User(Base):
 
 class Session(Base):
     __tablename__ = "sessions"
-    __table_args__ = (UniqueConstraint("token_hash"), Index(None, "expires_at"))
+    __table_args__ = (
+        UniqueConstraint("token_hash"),
+        Index(None, "expires_at"),
+        Index(None, "user_id"),
+    )
 
     id: Mapped[UUID] = _id()
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
