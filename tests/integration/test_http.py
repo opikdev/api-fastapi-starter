@@ -110,6 +110,15 @@ async def test_rejects_malformed_json(database: Database) -> None:
     assert body["errors"] == [{"field": "body", "detail": "isn't valid JSON"}]
 
 
+async def test_rejects_a_json_body_that_is_not_utf_8(database: Database) -> None:
+    async with api(database) as client:
+        response = await client.http.post(
+            "/v1/users", content=b'{"email": "\xff"}', headers={"Content-Type": "application/json"}
+        )
+    body = assert_problem(response, 400, "validation-failed")
+    assert body["errors"] == [{"field": "body", "detail": "couldn't be read"}]
+
+
 @pytest.mark.parametrize("chunked", [False, True])
 async def test_rejects_an_oversized_body(database: Database, chunked: bool) -> None:
     payload = json.dumps({"email": "a@example.com", "password": "x" * 200_000}).encode()

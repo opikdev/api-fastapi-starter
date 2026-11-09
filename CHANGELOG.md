@@ -29,6 +29,10 @@ All notable changes to this repo are recorded here. The format follows [Keep a C
 - Password hashing and checks run in a thread, so registration and login no longer block other requests.
 - Migration `0001` creates procrastinate's tables from a frozen copy of its 3.10.0 schema instead of the installed package, so upgrading procrastinate no longer changes what `0001` does. The SQL is identical, and a test fails when the installed procrastinate is ahead of the migrations.
 
+### Removed
+
+- The unused `ProblemError.status` property. Read the status from `CATALOG` instead.
+
 ## [0.1.0] - 2026-11-08
 
 ### Added

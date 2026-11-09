@@ -51,7 +51,7 @@ def present(user_id: object, email: str, created_at: datetime) -> UserOut:
     dependencies=[Depends(auth_rate_limit)],
     responses=responses(Slug.VALIDATION_FAILED, Slug.EMAIL_TAKEN, Slug.RATE_LIMITED),
 )
-async def create_user(body: Credentials, session: DbSession, request: Request) -> UserOut:
+async def create_user(body: Credentials, session: DbSession) -> UserOut:
     email = body.email.lower()
     password_hash = await run_in_threadpool(hash_password, body.password)
     statement = (
