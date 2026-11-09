@@ -126,7 +126,7 @@ def create_app(
         GuardV1,
         sessions=sessions,
         limit=settings.rate_limit_per_minute,
-        trust_proxy=settings.trust_proxy,
+        proxy_hops=settings.trust_proxy_hops,
     )
     app.add_middleware(HeadAsGet)
     app.add_middleware(Cors, origins=settings.origins)

@@ -1,4 +1,5 @@
 import asyncio
+import ipaddress
 import json
 import logging
 import secrets
@@ -18,13 +19,13 @@ pytestmark = pytest.mark.anyio
 
 
 def ip() -> str:
-    return f"203.0.113.{secrets.randbelow(250) + 1}-{secrets.token_hex(3)}"
+    return str(ipaddress.ip_address(f"2001:db8::{secrets.token_hex(2)}:{secrets.token_hex(2)}"))
 
 
 async def test_rate_limit_blocks_login_after_the_auth_limit_with_retry_after(
     database: Database,
 ) -> None:
-    async with api(database, AUTH_RATE_LIMIT_PER_MINUTE="2", TRUST_PROXY="true") as client:
+    async with api(database, AUTH_RATE_LIMIT_PER_MINUTE="2", TRUST_PROXY_HOPS="1") as client:
         headers = {"X-Forwarded-For": ip()}
         body = {"email": "nobody@example.com", "password": PASSWORD}
         statuses = [
@@ -38,7 +39,7 @@ async def test_rate_limit_blocks_login_after_the_auth_limit_with_retry_after(
 
 
 async def test_rate_limit_applies_the_global_limit_to_every_v1_route(database: Database) -> None:
-    async with api(database, RATE_LIMIT_PER_MINUTE="2", TRUST_PROXY="true") as client:
+    async with api(database, RATE_LIMIT_PER_MINUTE="2", TRUST_PROXY_HOPS="1") as client:
         headers = {"X-Forwarded-For": ip()}
         statuses = [
             (await client.http.get(path, headers=headers)).status_code
@@ -48,7 +49,7 @@ async def test_rate_limit_applies_the_global_limit_to_every_v1_route(database: D
 
 
 async def test_rate_limit_reports_the_remaining_budget(database: Database) -> None:
-    async with api(database, RATE_LIMIT_PER_MINUTE="5", TRUST_PROXY="true") as client:
+    async with api(database, RATE_LIMIT_PER_MINUTE="5", TRUST_PROXY_HOPS="1") as client:
         response = await client.http.get("/v1/notes", headers={"X-Forwarded-For": ip()})
     assert (response.headers["ratelimit-limit"], response.headers["ratelimit-remaining"]) == (
         "5",
@@ -58,7 +59,7 @@ async def test_rate_limit_reports_the_remaining_budget(database: Database) -> No
 
 
 async def test_rate_limit_counts_concurrent_requests_exactly(database: Database) -> None:
-    async with api(database, RATE_LIMIT_PER_MINUTE="10", TRUST_PROXY="true") as client:
+    async with api(database, RATE_LIMIT_PER_MINUTE="10", TRUST_PROXY_HOPS="1") as client:
         headers = {"X-Forwarded-For": ip()}
         responses = await asyncio.gather(
             *(client.http.get("/v1/notes", headers=headers) for _ in range(15))
@@ -70,7 +71,7 @@ async def test_rate_limit_starts_a_new_window_once_the_old_one_ends(
     database: Database, owner: psycopg.AsyncConnection
 ) -> None:
     client_ip = ip()
-    async with api(database, RATE_LIMIT_PER_MINUTE="1", TRUST_PROXY="true") as client:
+    async with api(database, RATE_LIMIT_PER_MINUTE="1", TRUST_PROXY_HOPS="1") as client:
         headers = {"X-Forwarded-For": client_ip}
         await client.http.get("/v1/notes", headers=headers)
         assert (await client.http.get("/v1/notes", headers=headers)).status_code == 429

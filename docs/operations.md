@@ -13,7 +13,7 @@ Set these on the API process. `.env.example` lists every option with a safe defa
 | `DATABASE_STATEMENT_TIMEOUT_MS` | number | `5000` | Cancels slow queries |
 | `DATABASE_POOL_MAX` | number | `10` | Database connections per process. Keep the total across processes under Postgres's `max_connections` |
 | `CORS_ORIGINS` | list | Empty | Comma-separated browser origins. Empty disables CORS |
-| `TRUST_PROXY` | boolean | `false` | Set to `true` only behind a proxy that appends to `X-Forwarded-For` |
+| `TRUST_PROXY_HOPS` | number | `0` | How many proxies in front of the API append to `X-Forwarded-For`. `0` ignores the header and uses the socket address |
 | `SESSION_TTL_HOURS` | number | `168` | Session lifetime |
 | `RATE_LIMIT_PER_MINUTE` | number | `300` | Per client, across `/v1` |
 | `AUTH_RATE_LIMIT_PER_MINUTE` | number | `10` | Per client, on registration and login |
@@ -23,7 +23,7 @@ Set these on the API process. `.env.example` lists every option with a safe defa
 
 The worker reads `DATABASE_URL`, `LOG_LEVEL`, `DATABASE_STATEMENT_TIMEOUT_MS`, and `DATABASE_POOL_MAX` too. `seed` reads `MIGRATION_DATABASE_URL` or `DATABASE_URL`, `APP_ENV`, and `SEED_DEMO_DATA`.
 
-Set `TRUST_PROXY` correctly, or every client behind a load balancer shares one rate limit.
+Set `TRUST_PROXY_HOPS` to the number of proxies you run, such as `1` behind one load balancer. Too low, and every client behind it shares one rate limit. Too high, and clients can forge `X-Forwarded-For` to dodge it. The API takes the address that many entries from the right, the leftmost if there are fewer, and the socket address if that entry isn't an IP address. `TRUST_PROXY` was replaced by it, and the API refuses to start while `TRUST_PROXY` is set.
 
 ## Set up production roles
 

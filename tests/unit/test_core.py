@@ -1,10 +1,12 @@
 from uuid import UUID
 
 import pytest
+from starlette.requests import HTTPConnection
 
 from app.config import ConfigError, database_url, load_settings
 from app.ids import Prefix, format_id, parse_id
 from app.main import create_app
+from app.ratelimit import client_ip
 from app.security import DUMMY_HASH, hash_password, hash_token, new_token, verify_password
 
 URL = "postgresql://api_app:pw@localhost:5432/api"
@@ -14,7 +16,7 @@ def test_settings_have_safe_defaults() -> None:
     settings = load_settings({"DATABASE_URL": URL})
     assert (settings.port, settings.session_ttl_hours, settings.origins) == (3000, 168, [])
     assert (settings.rate_limit_per_minute, settings.auth_rate_limit_per_minute) == (300, 10)
-    assert settings.trust_proxy is False
+    assert settings.trust_proxy_hops == 0
     assert settings.database_pool_max == 10
 
 
@@ -38,12 +40,48 @@ def test_settings_split_cors_origins_and_ignore_empty_values() -> None:
         ({"DATABASE_URL": URL, "PORT": "0"}, "PORT"),
         ({"DATABASE_URL": URL, "LOG_LEVEL": "loud"}, "LOG_LEVEL"),
         ({"DATABASE_URL": URL, "DATABASE_POOL_MAX": "0"}, "DATABASE_POOL_MAX"),
+        ({"DATABASE_URL": URL, "TRUST_PROXY_HOPS": "-1"}, "TRUST_PROXY_HOPS"),
     ],
 )
 def test_settings_name_each_bad_variable_without_its_value(env: dict[str, str], name: str) -> None:
     with pytest.raises(ConfigError, match=name) as error:
         load_settings(env)
     assert "pw@" not in str(error.value)
+
+
+def test_settings_refuse_the_replaced_trust_proxy() -> None:
+    with pytest.raises(ConfigError) as error:
+        load_settings({"DATABASE_URL": URL, "TRUST_PROXY": "true"})
+    assert str(error.value) == (
+        "TRUST_PROXY was replaced by TRUST_PROXY_HOPS. Set TRUST_PROXY_HOPS=1 for the old behavior."
+    )
+
+
+def connection(*forwarded: str) -> HTTPConnection:
+    headers = [(b"x-forwarded-for", value.encode()) for value in forwarded]
+    return HTTPConnection({"type": "http", "headers": headers, "client": ("10.0.0.9", 5000)})
+
+
+@pytest.mark.parametrize(
+    ("hops", "forwarded", "expected"),
+    [
+        (0, ["198.51.100.7"], "10.0.0.9"),
+        (0, [], "10.0.0.9"),
+        (1, ["1.1.1.1, 198.51.100.7"], "198.51.100.7"),
+        (1, [" 198.51.100.7 "], "198.51.100.7"),
+        (2, ["1.1.1.1, 198.51.100.7, 10.0.0.2"], "198.51.100.7"),
+        (2, ["1.1.1.1, 198.51.100.7", "10.0.0.2"], "198.51.100.7"),
+        (3, ["198.51.100.7, 10.0.0.2"], "198.51.100.7"),
+        (1, [], "10.0.0.9"),
+        (1, ["1.1.1.1, "], "10.0.0.9"),
+        (1, ["not-an-ip"], "10.0.0.9"),
+        (1, ["2001:db8::1"], "2001:db8::1"),
+    ],
+)
+def test_client_ip_trusts_only_the_configured_proxy_hops(
+    hops: int, forwarded: list[str], expected: str
+) -> None:
+    assert client_ip(connection(*forwarded), hops) == expected
 
 
 @pytest.mark.parametrize("prefix", ["postgres://", "postgresql://", "postgresql+psycopg://"])

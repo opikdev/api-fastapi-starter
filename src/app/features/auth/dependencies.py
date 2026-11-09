@@ -58,6 +58,6 @@ Authenticated = Annotated[CurrentUser, Depends(current_user)]
 
 async def auth_rate_limit(request: Request, response: Response, session: DbSession) -> None:
     settings = request.app.state.settings
-    ip = ratelimit.client_ip(request, settings.trust_proxy)
+    ip = ratelimit.client_ip(request, settings.trust_proxy_hops)
     headers = await ratelimit.hit(session, f"auth:{ip}", settings.auth_rate_limit_per_minute)
     response.headers.update(headers)

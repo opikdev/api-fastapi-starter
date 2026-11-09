@@ -1,5 +1,6 @@
 """Fixed one-minute windows counted in Postgres, so every instance shares one budget."""
 
+import ipaddress
 import math
 from datetime import UTC, datetime
 
@@ -14,12 +15,25 @@ from app.problems import ProblemError, Slug
 WINDOW = text("now() + interval '1 minute'")
 
 
-def client_ip(connection: HTTPConnection, trust_proxy: bool) -> str:
-    if trust_proxy:
-        last = connection.headers.get("x-forwarded-for", "").split(",")[-1].strip()
-        if last:
-            return last
-    return connection.client.host if connection.client else "unknown"
+def client_ip(connection: HTTPConnection, proxy_hops: int) -> str:
+    """The client's address: the socket's, or the one `proxy_hops` from the right of X-Forwarded-For.
+
+    Each trusted proxy appends the address it saw, so the entry `proxy_hops` from the right is the
+    last one a trusted proxy wrote. Entries further left come from the client and can be forged.
+    """
+    socket = connection.client.host if connection.client else "unknown"
+    forwarded = [
+        entry.strip()
+        for header in connection.headers.getlist("x-forwarded-for")
+        for entry in header.split(",")
+    ]
+    if proxy_hops == 0 or not forwarded:
+        return socket
+    chosen = forwarded[-proxy_hops] if proxy_hops <= len(forwarded) else forwarded[0]
+    try:
+        return str(ipaddress.ip_address(chosen))
+    except ValueError:
+        return socket
 
 
 async def hit(session: AsyncSession, key: str, limit: int) -> dict[str, str]:

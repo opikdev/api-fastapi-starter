@@ -1,5 +1,6 @@
 """Settings from environment variables, validated once at startup."""
 
+import os
 from typing import Literal
 
 from pydantic import Field, PostgresDsn, ValidationError
@@ -19,7 +20,7 @@ class Settings(BaseSettings):
     database_statement_timeout_ms: int = Field(default=5000, ge=100, le=600_000)
     database_pool_max: int = Field(default=10, ge=1)
     cors_origins: str = ""
-    trust_proxy: bool = False
+    trust_proxy_hops: int = Field(default=0, ge=0)
     session_ttl_hours: int = Field(default=168, ge=1, le=8760)
     rate_limit_per_minute: int = Field(default=300, ge=1)
     auth_rate_limit_per_minute: int = Field(default=10, ge=1)
@@ -49,6 +50,11 @@ def database_url(url: str) -> str:
 
 
 def load_settings(env: dict[str, str] | None = None) -> Settings:
+    source = os.environ if env is None else env
+    if any(key.upper() == "TRUST_PROXY" and value for key, value in source.items()):
+        raise ConfigError(
+            "TRUST_PROXY was replaced by TRUST_PROXY_HOPS. Set TRUST_PROXY_HOPS=1 for the old behavior."
+        )
     return _load(Settings, env)
 
 
