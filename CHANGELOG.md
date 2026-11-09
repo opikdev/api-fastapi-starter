@@ -19,6 +19,7 @@ All notable changes to this repo are recorded here. The format follows [Keep a C
 
 ### Fixed
 
+- The release workflow runs lint and tests before it publishes the image.
 - CORS responses expose `ETag`, `Location`, `X-Request-Id`, `Retry-After`, the `RateLimit-*` headers, and `Idempotency-Replayed` to browser scripts. Only the preflight listed some of them before, where browsers ignore it.
 - An expired `Idempotency-Key` creates a new note instead of replaying the old one, as it did until the hourly cleanup removed it.
 - Idempotency keys are scoped to the endpoint as well as the user, so an endpoint that adds idempotency can't replay another's response. Migration `0003` changes the key's unique constraint. Idempotent `POST /v1/notes` requests on the old version fail until the new version is rolled out, so deploy both together.

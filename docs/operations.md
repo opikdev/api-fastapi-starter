@@ -31,7 +31,7 @@ Replace the dev passwords in `docker/postgres/init.sql`. Run the file once as th
 
 ## Deploy
 
-Pushing a `vX.Y.Z` tag publishes an image for amd64 and arm64 to `ghcr.io`. The image's entry point runs every step, so deploy in this order:
+Pushing a `vX.Y.Z` tag runs lint and tests, then publishes an image for amd64 and arm64 to `ghcr.io`. The image's entry point runs every step, so deploy in this order:
 
 1. Run the image with the `migrate` command and `MIGRATION_DATABASE_URL` set to the owner role.
 2. Roll out the new image with `DATABASE_URL` set to `api_app`, for both the API and the `worker` command.
