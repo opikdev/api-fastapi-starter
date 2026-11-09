@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request, Response, status
+from fastapi.concurrency import run_in_threadpool
 from pydantic import EmailStr, Field
 from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert
@@ -52,9 +53,10 @@ def present(user_id: object, email: str, created_at: datetime) -> UserOut:
 )
 async def create_user(body: Credentials, session: DbSession, request: Request) -> UserOut:
     email = body.email.lower()
+    password_hash = await run_in_threadpool(hash_password, body.password)
     statement = (
         insert(User)
-        .values(email=email, password_hash=hash_password(body.password))
+        .values(email=email, password_hash=password_hash)
         .on_conflict_do_nothing(index_elements=[User.email])
         .returning(User.id, User.email, User.created_at)
     )
@@ -81,7 +83,9 @@ async def create_session(
         await session.execute(select(User).where(User.email == body.email.lower()))
     ).scalar_one_or_none()
     # Verify against a dummy hash for unknown emails, so both answers take the same time.
-    matches = verify_password(body.password, user.password_hash if user else DUMMY_HASH)
+    matches = await run_in_threadpool(
+        verify_password, body.password, user.password_hash if user else DUMMY_HASH
+    )
     if user is None or not matches:
         raise ProblemError(Slug.INVALID_CREDENTIALS, "The email or password is wrong.")
 

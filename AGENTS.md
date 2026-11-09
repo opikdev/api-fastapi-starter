@@ -37,6 +37,7 @@ A production-ready Python API: FastAPI, SQLAlchemy, Alembic, and Postgres, with 
 - Scope every query on a resource to the caller's user ID. Return 404, not 403, for someone else's resource.
 - Features don't import each other, except for `features/auth/dependencies.py`. `tests/unit/test_architecture.py` enforces this.
 - Put work that can wait, or that calls slow outside systems, in a job in `src/app/jobs.py`. Jobs may run more than once, so make them safe to retry.
+- Never make CPU-heavy or blocking calls in `async` code, because they stall every request. Wrap them in `run_in_threadpool`, as password hashing is, or move them to a job.
 - Add dependencies with `uv add`, and commit `uv.lock` in the same change.
 - Don't edit files listed in `.baseline.sha256`. They come from [opikdev/starters](https://github.com/opikdev/starters).
 - Keep this file a short map, and put detail in `docs/`.

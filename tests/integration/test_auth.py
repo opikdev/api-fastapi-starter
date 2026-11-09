@@ -1,9 +1,12 @@
 import secrets
+import threading
 from datetime import UTC, datetime
 
 import psycopg
 import pytest
 
+from app import security
+from app.features.auth import routes
 from tests.conftest import Database
 from tests.helpers import PASSWORD, api, assert_field_error, assert_problem
 
@@ -159,3 +162,24 @@ async def test_logout_revokes_only_the_current_session(database: Database) -> No
         assert (await user.request("DELETE", "/v1/sessions/current")).status_code == 204
         assert_problem(await user.request("GET", "/v1/users/me"), 401, "unauthorized")
         assert (await client.http.get("/v1/users/me", headers=other)).status_code == 200
+
+
+async def test_hashing_and_verifying_passwords_run_off_the_event_loop(
+    database: Database, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    threads: list[int] = []
+
+    def hash_password(password: str) -> str:
+        threads.append(threading.get_ident())
+        return security.hash_password(password)
+
+    def verify_password(password: str, stored: str) -> bool:
+        threads.append(threading.get_ident())
+        return security.verify_password(password, stored)
+
+    monkeypatch.setattr(routes, "hash_password", hash_password)
+    monkeypatch.setattr(routes, "verify_password", verify_password)
+    async with api(database) as client:
+        await client.sign_up()
+    assert len(threads) == 2
+    assert threading.get_ident() not in threads
