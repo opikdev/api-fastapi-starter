@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     port: int = Field(default=3000, ge=1, le=65535)
     log_level: Literal["debug", "info", "warning", "error"] = "info"
     database_statement_timeout_ms: int = Field(default=5000, ge=100, le=600_000)
+    database_pool_max: int = Field(default=10, ge=1)
     cors_origins: str = ""
     trust_proxy: bool = False
     session_ttl_hours: int = Field(default=168, ge=1, le=8760)

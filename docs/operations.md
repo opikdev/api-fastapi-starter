@@ -11,6 +11,7 @@ Set these on the API process. `.env.example` lists every option with a safe defa
 | `PORT` | number | `3000` | Listen port |
 | `LOG_LEVEL` | string | `info` | `debug`, `info`, `warn`, or `error` |
 | `DATABASE_STATEMENT_TIMEOUT_MS` | number | `5000` | Cancels slow queries |
+| `DATABASE_POOL_MAX` | number | `10` | Database connections per process. Keep the total across processes under Postgres's `max_connections` |
 | `CORS_ORIGINS` | list | Empty | Comma-separated browser origins. Empty disables CORS |
 | `TRUST_PROXY` | boolean | `false` | Set to `true` only behind a proxy that appends to `X-Forwarded-For` |
 | `SESSION_TTL_HOURS` | number | `168` | Session lifetime |

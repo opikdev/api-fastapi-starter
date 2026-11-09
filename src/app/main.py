@@ -92,7 +92,9 @@ def create_app(
     span_processor: SpanProcessor | None = None,
 ) -> FastAPI:
     engine = engine or create_engine(
-        str(settings.database_url), settings.database_statement_timeout_ms
+        str(settings.database_url),
+        settings.database_statement_timeout_ms,
+        settings.database_pool_max,
     )
     sessions = async_sessionmaker(engine, expire_on_commit=False)
 

@@ -112,10 +112,10 @@ class RateLimit(Base):
     updated_at: Mapped[datetime] = _timestamp()
 
 
-def create_engine(url: str, statement_timeout_ms: int = 5000) -> AsyncEngine:
+def create_engine(url: str, statement_timeout_ms: int = 5000, pool_size: int = 10) -> AsyncEngine:
     return create_async_engine(
         database_url(url),
-        pool_size=10,
+        pool_size=pool_size,
         max_overflow=0,
         pool_pre_ping=True,
         connect_args={

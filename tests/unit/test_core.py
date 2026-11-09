@@ -4,6 +4,7 @@ import pytest
 
 from app.config import ConfigError, database_url, load_settings
 from app.ids import Prefix, format_id, parse_id
+from app.main import create_app
 from app.security import DUMMY_HASH, hash_password, hash_token, new_token, verify_password
 
 URL = "postgresql://api_app:pw@localhost:5432/api"
@@ -14,6 +15,12 @@ def test_settings_have_safe_defaults() -> None:
     assert (settings.port, settings.session_ttl_hours, settings.origins) == (3000, 168, [])
     assert (settings.rate_limit_per_minute, settings.auth_rate_limit_per_minute) == (300, 10)
     assert settings.trust_proxy is False
+    assert settings.database_pool_max == 10
+
+
+def test_the_app_engine_uses_database_pool_max() -> None:
+    app = create_app(load_settings({"DATABASE_URL": URL, "DATABASE_POOL_MAX": "3"}))
+    assert app.state.sessions.kw["bind"].pool.size() == 3
 
 
 def test_settings_split_cors_origins_and_ignore_empty_values() -> None:
@@ -30,6 +37,7 @@ def test_settings_split_cors_origins_and_ignore_empty_values() -> None:
         ({}, "DATABASE_URL"),
         ({"DATABASE_URL": URL, "PORT": "0"}, "PORT"),
         ({"DATABASE_URL": URL, "LOG_LEVEL": "loud"}, "LOG_LEVEL"),
+        ({"DATABASE_URL": URL, "DATABASE_POOL_MAX": "0"}, "DATABASE_POOL_MAX"),
     ],
 )
 def test_settings_name_each_bad_variable_without_its_value(env: dict[str, str], name: str) -> None:

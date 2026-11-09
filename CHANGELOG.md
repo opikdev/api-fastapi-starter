@@ -4,6 +4,10 @@ All notable changes to this repo are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Added
+
+- `DATABASE_POOL_MAX`, the API's database pool size. It defaults to 10, as before.
+
 ### Changed
 
 - `DbSession` and `get_session` moved from `app.db` to `app.dependencies`, so jobs no longer load FastAPI through `app.db`. Update imports in your features.
