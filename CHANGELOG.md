@@ -4,6 +4,8 @@ All notable changes to this repo are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-09
+
 ### Added
 
 - A dev container with Postgres, migrations, seed data, `jq`, and `TEST_DATABASE_URL`, so `make verify` runs inside it.
@@ -17,6 +19,8 @@ All notable changes to this repo are recorded here. The format follows [Keep a C
 - **Breaking:** `TRUST_PROXY` is replaced by `TRUST_PROXY_HOPS`, the number of proxies that append to `X-Forwarded-For`. `0`, the default, ignores the header. Set `TRUST_PROXY_HOPS=1` for the old `TRUST_PROXY=true`. The API refuses to start while `TRUST_PROXY` is set, and it falls back to the socket address when the chosen entry isn't an IP address.
 - `DbSession` and `get_session` moved from `app.db` to `app.dependencies`, so jobs no longer load FastAPI through `app.db`. Update imports in your features.
 - `tests/unit/test_architecture.py` finds every feature on its own and checks that jobs never load FastAPI, even indirectly. Ruff now bans relative imports.
+- The agent harness is v0.3.0. Its check also fails when the harness workflow or pre-commit hook is missing or no longer runs the check.
+- `renovate.json` belongs to the project and extends the shared baseline preset. Generated projects extend only `config:recommended`.
 
 ### Fixed
 
