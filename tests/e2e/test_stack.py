@@ -15,7 +15,13 @@ import pytest
 from api_client import AuthenticatedClient, Client
 from api_client.api.auth import create_session, create_user
 from api_client.api.notes import create_note, delete_note, list_notes, update_note
-from api_client.models import CreateNote, Credentials, UpdateNote
+from api_client.models import (
+    CreateNote,
+    CreateSession,
+    CreateSessionDelivery,
+    Credentials,
+    UpdateNote,
+)
 
 ROOT = Path(__file__).parents[2]
 PROJECT = "api-fastapi-starter-e2e"
@@ -98,10 +104,10 @@ def stack() -> Iterator[None]:
 def token(email: str, password: str) -> str:
     with Client(base_url=BASE) as anonymous:
         session = create_session.sync(
-            client=anonymous, body=Credentials(email=email, password=password)
+            client=anonymous, body=CreateSession(email=email, password=password)
         )
     assert session is not None
-    assert hasattr(session, "token"), session
+    assert isinstance(getattr(session, "token", None), str), session
     value: str = session.token
     return value
 
@@ -151,6 +157,35 @@ def test_runs_the_whole_note_lifecycle_through_the_generated_client() -> None:
         assert updated is not None
         assert getattr(updated, "version", None) == 2
         assert delete_note.sync_detailed(note_id=note.id, client=client).status_code == 204
+
+
+def test_logs_in_with_a_session_cookie_and_logs_out() -> None:
+    with Client(base_url=BASE) as anonymous:
+        login = create_session.sync_detailed(
+            client=anonymous,
+            body=CreateSession(
+                email="demo@example.com",
+                password="demo-password-123",
+                delivery=CreateSessionDelivery.COOKIE,
+            ),
+        )
+    assert login.status_code == 201
+    assert "token" not in json.loads(login.content)
+    set_cookie = login.headers["set-cookie"]
+    assert {"HttpOnly", "Secure", "SameSite=strict", "Path=/"} <= {
+        part.strip() for part in set_cookie.split(";")
+    }
+    cookie = {"Cookie": set_cookie.split(";")[0]}
+    cross_site = {"Origin": "https://evil.example", "Sec-Fetch-Site": "cross-site"}
+    with httpx2.Client(base_url=BASE, timeout=5) as http:
+        assert http.get("/v1/users/me", headers=cookie).json()["email"] == "demo@example.com"
+        forged = http.post("/v1/notes", json={"title": "Forged"}, headers=cookie | cross_site)
+        assert forged.status_code == 403
+        assert "urn:problem:forbidden" in forged.text
+        logout = http.delete("/v1/sessions/current", headers=cookie)
+        assert logout.status_code == 204
+        assert "Max-Age=0" in logout.headers["set-cookie"]
+        assert http.get("/v1/users/me", headers=cookie).status_code == 401
 
 
 def test_the_worker_sends_the_welcome_email() -> None:

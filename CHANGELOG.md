@@ -7,6 +7,17 @@ All notable changes to this repo are recorded here. The format follows [Keep a C
 ### Added
 
 - The README explains how to start a project with `pik new` or GitHub's **Use this template**. `pik new` removes that section from the project it creates.
+- `POST /v1/sessions` takes `delivery: "cookie"`, which sets the session in an `HttpOnly`, `Secure`, `SameSite=Strict` `__Host-session` cookie and leaves `token` out of the body, for browser apps on the same origin as the API. `delivery` defaults to `body`, which works as before.
+- Authenticated routes accept the `__Host-session` cookie when there's no `Authorization` header. An invalid or expired cookie gets 401 and is cleared, and logout always clears it. OpenAPI documents it as the `cookieAuth` scheme, and the bearer scheme is renamed `bearerAuth`.
+- The `forbidden` problem type, with status 403.
+
+### Changed
+
+- `SESSION_TTL_HOURS` is capped at 9600 (400 days), the longest a browser keeps a cookie, instead of 8760. The API refuses to start above it.
+
+### Security
+
+- Requests to `/v1` that change data are checked for cross-origin browser requests, the same way as Go's `CrossOriginProtection`. Bearer clients are unaffected, but cross-site browser requests that change data now get 403 `forbidden` unless their origin is in `CORS_ORIGINS`.
 
 ## [0.2.0] - 2026-11-09
 

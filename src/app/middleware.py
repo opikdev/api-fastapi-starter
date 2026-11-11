@@ -16,6 +16,7 @@ from app import ratelimit
 from app.problems import ProblemError, Slug
 
 MAX_BODY_BYTES = 100 * 1024
+SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
     "Strict-Transport-Security": "max-age=15552000; includeSubDomains",
@@ -162,6 +163,36 @@ class HeadAsGet:
             await send(message)
 
         await self.app({**scope, "method": "GET"}, receive, send_headers_only)
+
+
+class CrossOrigin:
+    """On /v1: blocks cross-origin browser requests that change data, like Go's CrossOriginProtection."""
+
+    def __init__(self, app: ASGIApp, origins: list[str]) -> None:
+        self.app = app
+        self.origins = set(origins)
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http" or not scope["path"].startswith("/v1/") or self._allows(scope):
+            await self.app(scope, receive, send)
+            return
+        problem = ProblemError(
+            Slug.FORBIDDEN,
+            "Cross-origin requests that change data are blocked. Send the request from the same "
+            "origin, or add the origin to CORS_ORIGINS.",
+        )
+        await _send_problem(scope, send, problem)
+
+    def _allows(self, scope: Scope) -> bool:
+        if scope["method"] in SAFE_METHODS:
+            return True
+        headers = Headers(scope=scope)
+        origin = headers.get("origin")
+        if origin in self.origins:
+            return True
+        if fetch_site := headers.get("sec-fetch-site"):
+            return fetch_site in {"same-origin", "none"}
+        return origin is None or origin.partition("://")[2] == headers.get("host")
 
 
 class GuardV1:

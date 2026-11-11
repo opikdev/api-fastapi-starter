@@ -11,6 +11,7 @@ class Slug(StrEnum):
     VALIDATION_FAILED = "validation-failed"
     INVALID_CREDENTIALS = "invalid-credentials"
     UNAUTHORIZED = "unauthorized"
+    FORBIDDEN = "forbidden"
     NOT_FOUND = "not-found"
     METHOD_NOT_ALLOWED = "method-not-allowed"
     EMAIL_TAKEN = "email-taken"
@@ -28,6 +29,7 @@ CATALOG: dict[Slug, tuple[int, str]] = {
     Slug.VALIDATION_FAILED: (400, "Request validation failed"),
     Slug.INVALID_CREDENTIALS: (401, "Invalid credentials"),
     Slug.UNAUTHORIZED: (401, "Authentication required"),
+    Slug.FORBIDDEN: (403, "Forbidden"),
     Slug.NOT_FOUND: (404, "Resource not found"),
     Slug.METHOD_NOT_ALLOWED: (405, "Method not allowed"),
     Slug.EMAIL_TAKEN: (409, "Email already registered"),

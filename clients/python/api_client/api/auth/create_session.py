@@ -5,14 +5,14 @@ import httpx2
 
 from ... import errors
 from ...client import AuthenticatedClient, Client
-from ...models.credentials import Credentials
+from ...models.create_session import CreateSession
 from ...models.session_out import SessionOut
 from ...types import Response
 
 
 def _get_kwargs(
     *,
-    body: Credentials,
+    body: CreateSession,
 ) -> dict[str, Any]:
     headers: dict[str, Any] = {}
 
@@ -69,12 +69,12 @@ def _build_response(
 def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
-    body: Credentials,
+    body: CreateSession,
 ) -> Response[Any | SessionOut]:
     """Log in
 
     Args:
-        body (Credentials):
+        body (CreateSession):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -98,12 +98,12 @@ def sync_detailed(
 def sync(
     *,
     client: AuthenticatedClient | Client,
-    body: Credentials,
+    body: CreateSession,
 ) -> Any | SessionOut | None:
     """Log in
 
     Args:
-        body (Credentials):
+        body (CreateSession):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -122,12 +122,12 @@ def sync(
 async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
-    body: Credentials,
+    body: CreateSession,
 ) -> Response[Any | SessionOut]:
     """Log in
 
     Args:
-        body (Credentials):
+        body (CreateSession):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -149,12 +149,12 @@ async def asyncio_detailed(
 async def asyncio(
     *,
     client: AuthenticatedClient | Client,
-    body: Credentials,
+    body: CreateSession,
 ) -> Any | SessionOut | None:
     """Log in
 
     Args:
-        body (Credentials):
+        body (CreateSession):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.

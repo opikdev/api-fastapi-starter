@@ -209,6 +209,85 @@ async def test_cors_allows_a_listed_origin_and_answers_a_preflight(database: Dat
     assert preflight.status_code == 204
     assert "Idempotency-Key" in preflight.headers["access-control-allow-headers"]
     assert "access-control-allow-origin" not in other.headers
+    assert "access-control-allow-credentials" not in simple.headers
+    assert "access-control-allow-credentials" not in preflight.headers
+
+
+TRUSTED = "https://app.example.com"
+CROSS_SITE = {"Origin": "https://evil.example", "Sec-Fetch-Site": "cross-site"}
+
+
+@pytest.mark.parametrize(
+    ("method", "headers", "allowed"),
+    [
+        ("GET", CROSS_SITE, True),
+        ("HEAD", CROSS_SITE, True),
+        ("OPTIONS", CROSS_SITE, True),
+        ("POST", {"Origin": TRUSTED, "Sec-Fetch-Site": "cross-site"}, True),
+        ("POST", {"Origin": "https://evil.example", "Sec-Fetch-Site": "same-origin"}, True),
+        ("POST", {"Sec-Fetch-Site": "none"}, True),
+        ("POST", {"Origin": "https://sub.example.com", "Sec-Fetch-Site": "same-site"}, False),
+        ("DELETE", CROSS_SITE, False),
+        ("POST", {}, True),
+        ("POST", {"Origin": "http://testserver"}, True),
+        ("PATCH", {"Origin": "https://evil.example"}, False),
+        ("POST", {"Origin": "null"}, False),
+        ("POST", {"Origin": "http://["}, False),
+    ],
+)
+async def test_cross_origin_protection_blocks_unsafe_requests_from_other_origins(
+    database: Database, method: str, headers: dict[str, str], allowed: bool
+) -> None:
+    async with api(database, CORS_ORIGINS=TRUSTED) as client:
+        response = await client.http.request(method, "/v1/notes", headers=headers)
+    if allowed:
+        assert response.status_code != 403, response.text
+        return
+    body = assert_problem(response, 403, "forbidden")
+    assert body["detail"] == (
+        "Cross-origin requests that change data are blocked. Send the request from the same "
+        "origin, or add the origin to CORS_ORIGINS."
+    )
+
+
+async def test_cross_origin_protection_blocks_a_cross_site_cookie_request_and_login(
+    database: Database, owner: psycopg.AsyncConnection
+) -> None:
+    async with api(database) as client:
+        user = await client.sign_up()
+        login = await client.http.post(
+            "/v1/sessions",
+            json={"email": user.email, "password": PASSWORD, "delivery": "cookie"},
+        )
+        cookie = login.headers["set-cookie"].split(";")[0]
+        forged = await client.http.post(
+            "/v1/notes", json={"title": "Forged"}, headers={"Cookie": cookie, **CROSS_SITE}
+        )
+        forged_login = await client.http.post(
+            "/v1/sessions",
+            json={"email": user.email, "password": PASSWORD, "delivery": "cookie"},
+            headers=CROSS_SITE,
+        )
+        same_origin = await client.http.post(
+            "/v1/notes",
+            json={"title": "Real"},
+            headers={
+                "Cookie": cookie,
+                "Origin": "http://testserver",
+                "Sec-Fetch-Site": "same-origin",
+            },
+        )
+    assert_problem(forged, 403, "forbidden")
+    assert_problem(forged_login, 403, "forbidden")
+    assert "set-cookie" not in forged_login.headers
+    assert same_origin.status_code == 201
+    titles = await (
+        await owner.execute(
+            "select title from notes where user_id = (select id from users where email = %s)",
+            [user.email],
+        )
+    ).fetchall()
+    assert titles == [("Real",)]
 
 
 async def test_cors_sends_no_headers_by_default(database: Database) -> None:

@@ -1,6 +1,8 @@
 """Contains all the data models used in inputs/outputs"""
 
 from .create_note import CreateNote
+from .create_session import CreateSession
+from .create_session_delivery import CreateSessionDelivery
 from .credentials import Credentials
 from .field_error import FieldError
 from .health import Health
@@ -14,6 +16,8 @@ from .user_out import UserOut
 
 __all__ = (
     "CreateNote",
+    "CreateSession",
+    "CreateSessionDelivery",
     "Credentials",
     "FieldError",
     "Health",

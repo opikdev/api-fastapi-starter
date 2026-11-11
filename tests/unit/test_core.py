@@ -22,6 +22,11 @@ def test_settings_have_safe_defaults() -> None:
     assert settings.database_pool_max == 10
 
 
+def test_settings_allow_a_session_ttl_up_to_the_browser_cookie_limit() -> None:
+    settings = load_settings({"DATABASE_URL": URL, "SESSION_TTL_HOURS": "9600"})
+    assert settings.session_ttl_hours == 9600
+
+
 def test_the_app_engine_uses_database_pool_max() -> None:
     app = create_app(load_settings({"DATABASE_URL": URL, "DATABASE_POOL_MAX": "3"}))
     assert app.state.sessions.kw["bind"].pool.size() == 3
@@ -43,6 +48,7 @@ def test_settings_split_cors_origins_and_ignore_empty_values() -> None:
         ({"DATABASE_URL": URL, "LOG_LEVEL": "loud"}, "LOG_LEVEL"),
         ({"DATABASE_URL": URL, "DATABASE_POOL_MAX": "0"}, "DATABASE_POOL_MAX"),
         ({"DATABASE_URL": URL, "TRUST_PROXY_HOPS": "-1"}, "TRUST_PROXY_HOPS"),
+        ({"DATABASE_URL": URL, "SESSION_TTL_HOURS": "9601"}, "SESSION_TTL_HOURS"),
     ],
 )
 def test_settings_name_each_bad_variable_without_its_value(
