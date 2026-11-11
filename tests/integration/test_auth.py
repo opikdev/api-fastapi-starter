@@ -2,19 +2,38 @@ import secrets
 import threading
 from datetime import UTC, datetime
 
+import httpx2
 import psycopg
 import pytest
 
 from app import security
 from app.features.auth import routes
 from tests.conftest import Database
-from tests.helpers import PASSWORD, api, assert_field_error, assert_problem
+from tests.helpers import PASSWORD, Api, api, assert_field_error, assert_problem
 
 pytestmark = pytest.mark.anyio
 
 
 def email() -> str:
     return f"user-{secrets.token_hex(6)}@example.com"
+
+
+async def cookie_login(client: Api, address: str) -> httpx2.Response:
+    return await client.http.post(
+        "/v1/sessions", json={"email": address, "password": PASSWORD, "delivery": "cookie"}
+    )
+
+
+def session_cookie(response: httpx2.Response) -> dict[str, str]:
+    name, value = response.headers["set-cookie"].split(";")[0].split("=", 1)
+    assert name == "__Host-session"
+    return {"Cookie": f"__Host-session={value}"}
+
+
+def assert_clears_the_cookie(response: httpx2.Response) -> None:
+    attributes = [part.strip().lower() for part in response.headers["set-cookie"].split(";")]
+    assert attributes[0] in {"__host-session=", '__host-session=""'}
+    assert {"max-age=0", "path=/", "httponly", "secure", "samesite=strict"} <= set(attributes)
 
 
 async def test_registration_creates_a_user_and_hides_the_password(
@@ -106,6 +125,63 @@ async def test_login_returns_a_token_that_is_not_stored_in_plain_text(
     assert stored == (0,)
 
 
+@pytest.mark.parametrize("delivery", [None, "body"])
+async def test_body_login_returns_the_token_and_sets_no_cookie(
+    database: Database, delivery: str | None
+) -> None:
+    async with api(database) as client:
+        user = await client.sign_up()
+        body = {"email": user.email, "password": PASSWORD}
+        response = await client.http.post(
+            "/v1/sessions", json=body | ({"delivery": delivery} if delivery else {})
+        )
+    assert response.status_code == 201
+    assert set(response.json()) == {"token", "expiresAt"}
+    assert "set-cookie" not in response.headers
+
+
+async def test_cookie_login_sets_an_httponly_host_cookie_instead_of_returning_the_token(
+    database: Database,
+) -> None:
+    async with api(database, SESSION_TTL_HOURS="2") as client:
+        user = await client.sign_up()
+        response = await cookie_login(client, user.email)
+        again = await cookie_login(client, user.email)
+    assert response.status_code == 201
+    assert response.headers["cache-control"] == "no-store"
+    assert set(response.json()) == {"expiresAt"}
+    assert datetime.fromisoformat(response.json()["expiresAt"]) > datetime.now(UTC)
+    attributes = [part.strip() for part in response.headers["set-cookie"].split(";")]
+    assert attributes[0].startswith("__Host-session=")
+    assert len(attributes[0]) > len("__Host-session=") + 40
+    assert {attribute.lower() for attribute in attributes[1:]} == {
+        "path=/",
+        "max-age=7200",
+        "httponly",
+        "secure",
+        "samesite=strict",
+    }
+    assert session_cookie(response) != session_cookie(again)
+
+
+async def test_login_rejects_an_unknown_delivery(database: Database) -> None:
+    async with api(database) as client:
+        response = await client.http.post(
+            "/v1/sessions", json={"email": email(), "password": PASSWORD, "delivery": "header"}
+        )
+    assert_problem(response, 400, "validation-failed")
+    assert_field_error(response, "delivery")
+
+
+async def test_registration_rejects_a_delivery(database: Database) -> None:
+    async with api(database) as client:
+        response = await client.http.post(
+            "/v1/users", json={"email": email(), "password": PASSWORD, "delivery": "cookie"}
+        )
+    assert_problem(response, 400, "validation-failed")
+    assert_field_error(response, "delivery")
+
+
 async def test_login_gives_a_wrong_password_and_an_unknown_email_the_same_answer(
     database: Database,
 ) -> None:
@@ -136,6 +212,84 @@ async def test_rejects_a_missing_or_bad_token(database: Database, header: str | 
         response = await client.http.get("/v1/users/me", headers=headers)
     assert_problem(response, 401, "unauthorized")
     assert response.headers["www-authenticate"] == "Bearer"
+    assert "set-cookie" not in response.headers
+
+
+async def test_authenticates_with_only_the_session_cookie(database: Database) -> None:
+    async with api(database) as client:
+        user = await client.sign_up()
+        cookie = session_cookie(await cookie_login(client, user.email))
+        response = await client.http.get("/v1/users/me", headers=cookie)
+    assert response.status_code == 200
+    assert response.json()["id"] == user.id
+
+
+async def test_prefers_the_authorization_header_over_the_cookie(database: Database) -> None:
+    async with api(database) as client:
+        first = await client.sign_up()
+        second = await client.sign_up()
+        cookie = session_cookie(await cookie_login(client, second.email))
+        response = await first.request("GET", "/v1/users/me", headers=cookie)
+    assert response.json()["id"] == first.id
+
+
+@pytest.mark.parametrize("header", ["Bearer not-a-real-token-at-all", "Basic dXNlcjpwYXNz", ""])
+async def test_rejects_a_bad_header_even_with_a_valid_cookie(
+    database: Database, header: str
+) -> None:
+    async with api(database) as client:
+        user = await client.sign_up()
+        cookie = session_cookie(await cookie_login(client, user.email))
+        response = await client.http.get("/v1/users/me", headers={"Authorization": header} | cookie)
+    assert_problem(response, 401, "unauthorized")
+    assert "set-cookie" not in response.headers
+
+
+@pytest.mark.parametrize(
+    "statement",
+    [
+        "update sessions set expires_at = now() - interval '1 second' "
+        "where user_id = (select id from users where email = %s)",
+        "delete from sessions where user_id = (select id from users where email = %s)",
+    ],
+)
+async def test_rejects_an_expired_or_revoked_cookie_and_clears_it(
+    database: Database, owner: psycopg.AsyncConnection, statement: str
+) -> None:
+    async with api(database) as client:
+        address = email()
+        await client.http.post("/v1/users", json={"email": address, "password": PASSWORD})
+        cookie = session_cookie(await cookie_login(client, address))
+        await owner.execute(statement, [address])
+        response = await client.http.get("/v1/users/me", headers=cookie)
+        unknown = await client.http.get(
+            "/v1/users/me", headers={"Cookie": "__Host-session=not-a-real-token"}
+        )
+    body = assert_problem(response, 401, "unauthorized")
+    assert "Bearer <token>" in body["detail"]
+    assert 'delivery: "cookie"' in body["detail"]
+    assert response.headers["www-authenticate"] == "Bearer"
+    assert_clears_the_cookie(response)
+    assert_clears_the_cookie(unknown)
+
+
+async def test_logout_with_the_cookie_revokes_and_clears_it(database: Database) -> None:
+    async with api(database) as client:
+        user = await client.sign_up()
+        cookie = session_cookie(await cookie_login(client, user.email))
+        logout = await client.http.delete("/v1/sessions/current", headers=cookie)
+        after = await client.http.get("/v1/users/me", headers=cookie)
+    assert logout.status_code == 204
+    assert_clears_the_cookie(logout)
+    assert_problem(after, 401, "unauthorized")
+
+
+async def test_logout_with_a_bearer_token_also_clears_the_cookie(database: Database) -> None:
+    async with api(database) as client:
+        user = await client.sign_up()
+        response = await user.request("DELETE", "/v1/sessions/current")
+    assert response.status_code == 204
+    assert_clears_the_cookie(response)
 
 
 async def test_rejects_an_expired_session(

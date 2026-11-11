@@ -133,7 +133,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/Credentials"
+                "$ref": "#/components/schemas/CreateSession"
               }
             }
           },
@@ -142,6 +142,14 @@
         "responses": {
           "201": {
             "description": "Successful Response",
+            "headers": {
+              "Set-Cookie": {
+                "description": "Sent when `delivery` is `cookie`: `__Host-session=<token>; Path=/; Max-Age=<seconds>; HttpOnly; Secure; SameSite=Strict`.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -211,7 +219,10 @@
         },
         "security": [
           {
-            "HTTPBearer": []
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
           }
         ]
       }
@@ -248,7 +259,10 @@
         },
         "security": [
           {
-            "HTTPBearer": []
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
           }
         ]
       }
@@ -262,7 +276,10 @@
         "operationId": "createNote",
         "security": [
           {
-            "HTTPBearer": []
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
           }
         ],
         "parameters": [
@@ -351,7 +368,10 @@
         "operationId": "listNotes",
         "security": [
           {
-            "HTTPBearer": []
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
           }
         ],
         "parameters": [
@@ -443,7 +463,10 @@
         "operationId": "getNote",
         "security": [
           {
-            "HTTPBearer": []
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
           }
         ],
         "parameters": [
@@ -511,7 +534,10 @@
         "operationId": "updateNote",
         "security": [
           {
-            "HTTPBearer": []
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
           }
         ],
         "parameters": [
@@ -640,7 +666,10 @@
         "operationId": "deleteNote",
         "security": [
           {
-            "HTTPBearer": []
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
           }
         ],
         "parameters": [
@@ -718,6 +747,48 @@
           "title"
         ],
         "title": "CreateNote"
+      },
+      "CreateSession": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "maxLength": 254,
+            "format": "email",
+            "title": "Email",
+            "examples": [
+              "demo@example.com"
+            ]
+          },
+          "password": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 12,
+            "title": "Password",
+            "examples": [
+              "correct-horse-battery"
+            ]
+          },
+          "delivery": {
+            "type": "string",
+            "enum": [
+              "body",
+              "cookie"
+            ],
+            "title": "Delivery",
+            "description": "`body` returns the token. `cookie` sets it in an httpOnly `__Host-session` cookie instead, for a browser app on the same origin as the API.",
+            "default": "body",
+            "examples": [
+              "cookie"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "email",
+          "password"
+        ],
+        "title": "CreateSession"
       },
       "Credentials": {
         "properties": {
@@ -922,7 +993,8 @@
         "properties": {
           "token": {
             "type": "string",
-            "title": "Token"
+            "title": "Token",
+            "description": "Present when `delivery` is `body`. Send it as `Authorization: Bearer <token>`."
           },
           "expiresAt": {
             "type": "string",
@@ -933,7 +1005,6 @@
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "token",
           "expiresAt"
         ],
         "title": "SessionOut"
@@ -1000,10 +1071,16 @@
       }
     },
     "securitySchemes": {
-      "HTTPBearer": {
+      "bearerAuth": {
         "type": "http",
         "description": "A session token from POST /v1/sessions.",
         "scheme": "bearer"
+      },
+      "cookieAuth": {
+        "type": "apiKey",
+        "description": "The cookie POST /v1/sessions sets when `delivery` is `cookie`.",
+        "in": "cookie",
+        "name": "__Host-session"
       }
     }
   }

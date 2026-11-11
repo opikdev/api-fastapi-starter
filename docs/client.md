@@ -10,11 +10,11 @@
 from api_client import AuthenticatedClient, Client
 from api_client.api.auth import create_session
 from api_client.api.notes import create_note, list_notes
-from api_client.models import CreateNote, Credentials
+from api_client.models import CreateNote, CreateSession
 
 with Client(base_url="http://localhost:3000") as anonymous:
     session = create_session.sync(
-        client=anonymous, body=Credentials(email="demo@example.com", password="demo-password-123")
+        client=anonymous, body=CreateSession(email="demo@example.com", password="demo-password-123")
     )
 
 with AuthenticatedClient(base_url="http://localhost:3000", token=session.token) as client:
@@ -25,6 +25,23 @@ with AuthenticatedClient(base_url="http://localhost:3000", token=session.token) 
 Each call has a `sync_detailed` and `asyncio_detailed` form that also returns the status code and headers. Error responses parse into `ProblemBody`. Copy the `api_client` folder into another project, or publish it as a package, and install `httpx2` and `attrs` there.
 
 Run `make client` after changing a route, and commit the result. `make check-generated` fails in CI if you don't.
+
+## From a browser app
+
+A browser app on the same origin as the API can keep the session in a cookie that JavaScript can't read. Serve both from one origin through a reverse proxy, such as `/api` forwarded to the API, then log in with `delivery: "cookie"`:
+
+```js
+await fetch("/api/v1/sessions", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ email, password, delivery: "cookie" }),
+});
+const me = await fetch("/api/v1/users/me");
+```
+
+The response has `expiresAt` and no `token`, and sets `__Host-session` with `HttpOnly`, `Secure`, and `SameSite=Strict`. The browser sends it on every same-origin request, and `DELETE /v1/sessions/current` clears it. Browsers treat `http://localhost` as secure, so the cookie works there in Chrome and Firefox. Other hosts need HTTPS.
+
+CORS never allows credentials, so the cookie only works from the API's own origin. From another origin, use a bearer token and list the origin in `CORS_ORIGINS`. Requests that change data from an origin that isn't listed get 403 `forbidden`.
 
 ## From other languages
 

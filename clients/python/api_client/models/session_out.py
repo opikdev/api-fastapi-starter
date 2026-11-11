@@ -6,6 +6,8 @@ from typing import Any, TypeVar
 
 from attrs import define as _attrs_define
 
+from ..types import UNSET, Unset
+
 T = TypeVar("T", bound="SessionOut")
 
 
@@ -13,39 +15,40 @@ T = TypeVar("T", bound="SessionOut")
 class SessionOut:
     """
     Attributes:
-        token (str):
         expires_at (datetime.datetime):
+        token (str | Unset): Present when `delivery` is `body`. Send it as `Authorization: Bearer <token>`.
     """
 
-    token: str
     expires_at: datetime.datetime
+    token: str | Unset = UNSET
 
     def to_dict(self) -> dict[str, Any]:
-        token = self.token
-
         expires_at = self.expires_at.isoformat()
+
+        token = self.token
 
         field_dict: dict[str, Any] = {}
 
         field_dict.update(
             {
-                "token": token,
                 "expiresAt": expires_at,
             }
         )
+        if token is not UNSET:
+            field_dict["token"] = token
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        token = d.pop("token")
-
         expires_at = datetime.datetime.fromisoformat(d.pop("expiresAt"))
 
+        token = d.pop("token", UNSET)
+
         session_out = cls(
-            token=token,
             expires_at=expires_at,
+            token=token,
         )
 
         return session_out

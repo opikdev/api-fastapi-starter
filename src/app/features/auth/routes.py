@@ -1,18 +1,24 @@
 """POST /v1/users, POST /v1/sessions, DELETE /v1/sessions/current, and GET /v1/users/me."""
 
 from datetime import datetime, timedelta
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Request, Response, status
 from fastapi.concurrency import run_in_threadpool
 from pydantic import EmailStr, Field
+from pydantic.json_schema import SkipJsonSchema
 from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert
 
 from app import jobs
 from app.db import Session, User
 from app.dependencies import DbSession
-from app.features.auth.dependencies import Authenticated, auth_rate_limit
+from app.features.auth.dependencies import (
+    Authenticated,
+    auth_rate_limit,
+    clear_session_cookie,
+    set_session_cookie,
+)
 from app.ids import Prefix, format_id
 from app.problems import ProblemError, Slug, responses
 from app.schema import ApiModel
@@ -28,6 +34,19 @@ class Credentials(ApiModel):
     ]
 
 
+class CreateSession(Credentials):
+    delivery: Annotated[
+        Literal["body", "cookie"],
+        Field(
+            description=(
+                "`body` returns the token. `cookie` sets it in an httpOnly `__Host-session` "
+                "cookie instead, for a browser app on the same origin as the API."
+            ),
+            examples=["cookie"],
+        ),
+    ] = "body"
+
+
 class UserOut(ApiModel):
     id: str = Field(examples=["usr_0190a7e4c1d27c3e9b8f6a5d4c3b2a10"])
     email: str
@@ -35,7 +54,14 @@ class UserOut(ApiModel):
 
 
 class SessionOut(ApiModel):
-    token: str
+    token: Annotated[
+        str | SkipJsonSchema[None],
+        Field(
+            description=(
+                "Present when `delivery` is `body`. Send it as `Authorization: Bearer <token>`."
+            )
+        ),
+    ] = None
     expires_at: datetime
 
 
@@ -74,10 +100,24 @@ async def create_user(body: Credentials, session: DbSession) -> UserOut:
     operation_id="createSession",
     summary="Log in",
     dependencies=[Depends(auth_rate_limit)],
-    responses=responses(Slug.VALIDATION_FAILED, Slug.INVALID_CREDENTIALS, Slug.RATE_LIMITED),
+    response_model_exclude_none=True,
+    responses={
+        **responses(Slug.VALIDATION_FAILED, Slug.INVALID_CREDENTIALS, Slug.RATE_LIMITED),
+        201: {
+            "headers": {
+                "Set-Cookie": {
+                    "description": (
+                        "Sent when `delivery` is `cookie`: `__Host-session=<token>; Path=/; "
+                        "Max-Age=<seconds>; HttpOnly; Secure; SameSite=Strict`."
+                    ),
+                    "schema": {"type": "string"},
+                }
+            }
+        },
+    },
 )
 async def create_session(
-    body: Credentials, session: DbSession, request: Request, response: Response
+    body: CreateSession, session: DbSession, request: Request, response: Response
 ) -> SessionOut:
     user = (
         await session.execute(select(User).where(User.email == body.email.lower()))
@@ -100,6 +140,9 @@ async def create_session(
     ).scalar_one()
     await session.commit()
     response.headers["Cache-Control"] = "no-store"
+    if body.delivery == "cookie":
+        set_session_cookie(response, token, int(ttl.total_seconds()))
+        return SessionOut(expires_at=expires_at)
     return SessionOut(token=token, expires_at=expires_at)
 
 
@@ -110,9 +153,12 @@ async def create_session(
     summary="Log out",
     responses=responses(Slug.UNAUTHORIZED),
 )
-async def delete_current_session(user: Authenticated, session: DbSession) -> None:
+async def delete_current_session(
+    user: Authenticated, session: DbSession, response: Response
+) -> None:
     await session.execute(delete(Session).where(Session.id == user.session_id))
     await session.commit()
+    clear_session_cookie(response)
 
 
 @router.get(

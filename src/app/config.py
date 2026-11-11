@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     database_pool_max: int = Field(default=10, ge=1)
     cors_origins: str = ""
     trust_proxy_hops: int = Field(default=0, ge=0)
-    session_ttl_hours: int = Field(default=168, ge=1, le=8760)
+    session_ttl_hours: int = Field(default=168, ge=1, le=9600)
     rate_limit_per_minute: int = Field(default=300, ge=1)
     auth_rate_limit_per_minute: int = Field(default=10, ge=1)
 

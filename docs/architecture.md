@@ -3,7 +3,8 @@
 ```mermaid
 flowchart LR
   C[Client] --> M["Middleware: tracing, request ID, logs, headers, CORS"]
-  M --> G["/v1 guard: rate limit, body limit, JSON only"]
+  M --> X["/v1 cross-origin check on unsafe methods"]
+  X --> G["/v1 guard: rate limit, body limit, JSON only"]
   G --> R["Feature routes"]
   R --> D[(Postgres)]
   R -. "defer" .-> Q["procrastinate jobs"]
@@ -29,6 +30,8 @@ Paths are under `src/app/`.
 
 - **Contract:** Pydantic models generate `openapi.json`, and a test fails if the committed file is out of date. `clients/python` is generated from it.
 - **Errors:** every failure is RFC 9457 Problem Details. Unexpected errors are logged and recorded on the trace, and the client only sees a request ID.
+- **Authentication:** a bearer token in `Authorization`, or else the `__Host-session` cookie. A request with an `Authorization` header never falls back to the cookie.
+- **Cross-origin protection:** on `/v1`, a request that isn't `GET`, `HEAD`, or `OPTIONS` gets 403 when `Sec-Fetch-Site` or `Origin` shows it came from another origin that isn't in `CORS_ORIGINS`. It's the same check as Go's `CrossOriginProtection`.
 - **Authorization:** every note query filters by the caller's user ID, so another user's note looks like it doesn't exist.
 - **Concurrency:** updates need an `If-Match` version, and the check happens inside the `UPDATE` statement.
 - **Idempotency:** the key and the note are written in one transaction. A concurrent duplicate waits for the first to commit, then replays it. Keys are scoped to the user and the endpoint, and expire after 24 hours, after which the key creates a new note.

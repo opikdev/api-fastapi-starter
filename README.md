@@ -10,7 +10,7 @@ A production-ready Python API you can run with one command and customize with co
 - **Typed end to end:** Pydantic models define every request and response, and `openapi.json` is committed and checked. Docs are at `/docs`.
 - **Generated client:** a typed Python client in `clients/python`, generated from the spec and used by the end-to-end tests. See [Call the API](docs/client.md).
 - **Background jobs:** procrastinate runs jobs from Postgres, with retries and an hourly cleanup, so there's no Redis to run. See [Run background jobs](docs/jobs.md).
-- **Auth:** registration, login, and revocable session tokens, with argon2id password hashes and per-user data access.
+- **Auth:** registration, login, and revocable session tokens, sent as a bearer token or an httpOnly cookie, with argon2id password hashes and per-user data access. See [Log in from a browser app](docs/client.md#from-a-browser-app).
 - **Reliable by default:** rate limits, idempotency keys, optimistic concurrency, and cursor pagination.
 - **Consistent errors:** RFC 9457 Problem Details everywhere. See the [error reference](docs/errors.md).
 - **Safe data layer:** Alembic migrations checked against the models, constraints in the database, and an app role that can't change the schema.

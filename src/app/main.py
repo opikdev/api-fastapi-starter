@@ -18,7 +18,7 @@ from app.db import create_engine
 from app.features.auth.routes import router as auth_router
 from app.features.notes.routes import router as notes_router
 from app.health import router as health_router
-from app.middleware import Cors, GuardV1, HeadAsGet, RequestContext
+from app.middleware import Cors, CrossOrigin, GuardV1, HeadAsGet, RequestContext
 from app.problems import INVALID_FIELDS, FieldError, ProblemError, Slug
 from app.telemetry import start_tracing
 
@@ -128,6 +128,7 @@ def create_app(
         limit=settings.rate_limit_per_minute,
         proxy_hops=settings.trust_proxy_hops,
     )
+    app.add_middleware(CrossOrigin, origins=settings.origins)
     app.add_middleware(HeadAsGet)
     app.add_middleware(Cors, origins=settings.origins)
     app.add_middleware(RequestContext)
