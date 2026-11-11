@@ -1,6 +1,6 @@
 [project]
 name = "api-fastapi-starter"
-version = "0.2.0"
+version = "0.3.0"
 description = "Production-ready Python API with FastAPI, SQLAlchemy, Postgres, background jobs, and auth"
 readme = "README.md"
 license = "MIT"
