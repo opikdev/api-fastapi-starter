@@ -8,7 +8,7 @@ VERSIONS = Path(__file__).parents[2] / "src" / "app" / "migrations" / "versions"
 
 # The procrastinate version the migrations bring its schema to. Bump it in the same change as the
 # revision that applies procrastinate's upgrade scripts.
-MIGRATED_TO = "3.10.0"
+MIGRATED_TO = "3.11.0"
 
 
 def test_migration_0001_creates_procrastinate_3_10_0s_schema_byte_for_byte() -> None:
@@ -27,3 +27,16 @@ def test_migrations_bring_procrastinate_to_the_installed_version() -> None:
         "`uv run procrastinate schema --migrations-path` prints. Then set MIGRATED_TO in "
         f"{Path(__file__).name} to {installed}. Never edit 0001_init.py or its SQL file."
     )
+
+
+def test_revisions_are_numbered_in_order_and_named_after_their_id() -> None:
+    revisions = sorted(VERSIONS.glob("[0-9][0-9][0-9][0-9]_*.py"))
+    assert revisions
+    for number, path in enumerate(revisions, start=1):
+        source = path.read_text()
+        assert path.name.startswith(f"{number:04d}_"), (
+            f"{path.name} breaks the sequence. Create revisions with `make migration name=...`"
+        )
+        assert f'revision: str = "{number:04d}"' in source, path.name
+        previous = f'"{number - 1:04d}"' if number > 1 else "None"
+        assert f"down_revision: str | None = {previous}" in source, path.name
