@@ -24,7 +24,7 @@ from app.schema import ApiModel
 router = APIRouter(prefix="/v1/notes", tags=["notes"])
 
 DEFAULT_PAGE_SIZE = 20
-ENTITY_TAG = re.compile(r'\s*(W/)?"([^"]*)"\s*')
+ENTITY_TAG = re.compile(r'(W/)?"([^"]*)"')
 MAX_VERSION = 2**31 - 1
 IDEMPOTENCY_TTL = timedelta(hours=24)
 
@@ -84,7 +84,7 @@ def accepted_versions(if_match: str) -> set[int] | None:
     versions: set[int] = set()
     weak = False
     for item in if_match.split(","):
-        tag = ENTITY_TAG.fullmatch(item)
+        tag = ENTITY_TAG.fullmatch(item.strip())
         if tag is None:
             raise ProblemError(
                 Slug.VERSION_MISMATCH,
