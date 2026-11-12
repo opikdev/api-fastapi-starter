@@ -1,6 +1,6 @@
 # Call the API
 
-`openapi.json` is the contract, generated from the routes and committed. The running API also serves it at `/openapi.json`, with interactive docs at `/docs`.
+`openapi.json` is the contract, generated from the routes and committed. When `DOCS_ENABLED` is `true`, as in `.env.example` and Compose, the running API also serves it at `/openapi.json`, with interactive docs at `/docs`. Production leaves them off, as [ADR 009](decisions/009-turn-docs-off-by-default.md) explains.
 
 ## From Python
 

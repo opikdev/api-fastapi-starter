@@ -1,5 +1,6 @@
 """POST /v1/users, POST /v1/sessions, DELETE /v1/sessions/current, and GET /v1/users/me."""
 
+import hashlib
 from datetime import datetime, timedelta
 from typing import Annotated, Literal
 
@@ -10,7 +11,7 @@ from pydantic.json_schema import SkipJsonSchema
 from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert
 
-from app import jobs
+from app import jobs, ratelimit
 from app.db import Session, User
 from app.dependencies import DbSession
 from app.features.auth.dependencies import (
@@ -20,6 +21,7 @@ from app.features.auth.dependencies import (
     set_session_cookie,
 )
 from app.ids import Prefix, format_id
+from app.openapi import header
 from app.problems import ProblemError, Slug, responses
 from app.schema import ApiModel
 from app.security import DUMMY_HASH, hash_password, new_token, verify_password
@@ -27,14 +29,20 @@ from app.security import DUMMY_HASH, hash_password, new_token, verify_password
 router = APIRouter(prefix="/v1", tags=["auth"])
 
 
+Email = Annotated[EmailStr, Field(max_length=254, examples=["demo@example.com"])]
+
+
 class Credentials(ApiModel):
-    email: Annotated[EmailStr, Field(max_length=254, examples=["demo@example.com"])]
+    email: Email
     password: Annotated[
         str, Field(min_length=12, max_length=128, examples=["correct-horse-battery"])
     ]
 
 
-class CreateSession(Credentials):
+class CreateSession(ApiModel):
+    email: Email
+    # The password policy applies when one is set, so a stricter policy never locks anyone out.
+    password: Annotated[str, Field(min_length=1, examples=["correct-horse-battery"])]
     delivery: Annotated[
         Literal["body", "cookie"],
         Field(
@@ -75,7 +83,7 @@ def present(user_id: object, email: str, created_at: datetime) -> UserOut:
     operation_id="createUser",
     summary="Register a user",
     dependencies=[Depends(auth_rate_limit)],
-    responses=responses(Slug.VALIDATION_FAILED, Slug.EMAIL_TAKEN, Slug.RATE_LIMITED),
+    responses=responses(Slug.VALIDATION_FAILED, Slug.EMAIL_TAKEN),
 )
 async def create_user(body: Credentials, session: DbSession) -> UserOut:
     email = body.email.lower()
@@ -102,32 +110,35 @@ async def create_user(body: Credentials, session: DbSession) -> UserOut:
     dependencies=[Depends(auth_rate_limit)],
     response_model_exclude_none=True,
     responses={
-        **responses(Slug.VALIDATION_FAILED, Slug.INVALID_CREDENTIALS, Slug.RATE_LIMITED),
-        201: {
-            "headers": {
-                "Set-Cookie": {
-                    "description": (
-                        "Sent when `delivery` is `cookie`: `__Host-session=<token>; Path=/; "
-                        "Max-Age=<seconds>; HttpOnly; Secure; SameSite=Strict`."
-                    ),
-                    "schema": {"type": "string"},
-                }
-            }
-        },
+        **responses(Slug.VALIDATION_FAILED, Slug.INVALID_CREDENTIALS),
+        201: {"headers": {"Set-Cookie": header("SetCookie")}},
     },
 )
 async def create_session(
     body: CreateSession, session: DbSession, request: Request, response: Response
 ) -> SessionOut:
-    user = (
-        await session.execute(select(User).where(User.email == body.email.lower()))
-    ).scalar_one_or_none()
+    settings = request.app.state.settings
+    email = body.email.strip().lower()
+    # Keyed by email whether or not the account exists, so a 429 reveals nothing.
+    failures_key = f"login:{hashlib.sha256(email.encode()).hexdigest()}"
+    policy = ratelimit.Policy(
+        "login", settings.login_failure_limit, settings.login_failure_window_seconds
+    )
+    # Count the attempt first and refund it on success, so parallel guesses can't skip the limit.
+    attempt = await ratelimit.hit(session, failures_key, policy)
+    if attempt.exceeded:
+        await run_in_threadpool(verify_password, body.password, DUMMY_HASH)
+        ratelimit.usages(request.scope).append(attempt)
+        raise ratelimit.rate_limited(attempt, "Too many failed logins for this account.")
+
+    user = (await session.execute(select(User).where(User.email == email))).scalar_one_or_none()
     # Verify against a dummy hash for unknown emails, so both answers take the same time.
     matches = await run_in_threadpool(
         verify_password, body.password, user.password_hash if user else DUMMY_HASH
     )
     if user is None or not matches:
         raise ProblemError(Slug.INVALID_CREDENTIALS, "The email or password is wrong.")
+    await ratelimit.refund(session, failures_key)
 
     token, token_hash = new_token()
     ttl = timedelta(hours=request.app.state.settings.session_ttl_hours)
@@ -139,7 +150,6 @@ async def create_session(
         )
     ).scalar_one()
     await session.commit()
-    response.headers["Cache-Control"] = "no-store"
     if body.delivery == "cookie":
         set_session_cookie(response, token, int(ttl.total_seconds()))
         return SessionOut(expires_at=expires_at)

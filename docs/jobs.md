@@ -6,8 +6,9 @@ Jobs live in Postgres, in procrastinate's tables, so the API and the worker need
 |---|---|---|
 | `send_welcome_email` | After each registration | Sends a welcome email through `EmailSender`, with up to 5 attempts |
 | `delete_expired_rows` | Hourly, at 7 past | Removes expired sessions, idempotency keys, and rate-limit windows |
+| `retry_stalled_jobs` | Every 5 minutes | Puts jobs back in the queue whose worker stopped sending heartbeats mid-job |
 
-Run a worker with `make worker` on your machine, or the `worker` service in Compose. In production, run the image with the `worker` command.
+Run a worker with `make worker` on your machine, or the `worker` service in Compose. In production, run the image with the `worker` command. On `SIGTERM`, it stops taking jobs and gives running ones up to `SHUTDOWN_TIMEOUT_SECONDS` to finish, then aborts them. Keep the platform's stop grace period above that, as Compose's 40 seconds is.
 
 ## Add a job
 
@@ -18,7 +19,7 @@ Run a worker with `make worker` on your machine, or the `worker` service in Comp
 
 `jobs.defer` queues the job in the request's transaction. The job exists only if the transaction commits, and the transaction fails if the job can't be queued. So registration never creates a user without a welcome email, and a failed registration can be retried. Deferring after the commit instead would leave a user with no job whenever queueing failed.
 
-Make every job safe to run twice, because a worker can crash after doing the work but before marking the job done. Use `queueing_lock` to keep only one copy of a job waiting.
+Make every job safe to run twice. A worker can crash or be killed after doing the work but before marking the job done. The job then stays `doing` until `retry_stalled_jobs` sees that its worker's heartbeat is over 30 seconds old and runs it again on another worker. A job that runs past the shutdown timeout is aborted and retried under its retry strategy. Use `queueing_lock` to keep only one copy of a job waiting.
 
 ## Send real email
 
@@ -30,4 +31,4 @@ Make every job safe to run twice, because a worker can crash after doing the wor
 uv run --env-file .env procrastinate --app=app.jobs.queue shell
 ```
 
-Jobs that fail every attempt stay in `procrastinate_jobs` with the status `failed`, so you can find and retry them.
+Jobs that fail every attempt stay in `procrastinate_jobs` with the status `failed`, so you can find and retry them. With telemetry on, each job is traced as `job <task name>`.

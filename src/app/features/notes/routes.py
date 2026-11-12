@@ -9,7 +9,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Header, Query, Request, Response, status
 from pydantic import Field
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, func, select, true, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,13 +17,15 @@ from app.db import IdempotencyKey, Note
 from app.dependencies import DbSession
 from app.features.auth.dependencies import Authenticated
 from app.ids import Prefix, format_id, parse_id
+from app.openapi import header
 from app.problems import ProblemError, Slug, invalid, responses
 from app.schema import ApiModel
 
 router = APIRouter(prefix="/v1/notes", tags=["notes"])
 
 DEFAULT_PAGE_SIZE = 20
-IF_MATCH = re.compile(r'^"(\d+)"$')
+ENTITY_TAG = re.compile(r'(W/)?"([^"]*)"')
+MAX_VERSION = 2**31 - 1
 IDEMPOTENCY_TTL = timedelta(hours=24)
 
 
@@ -71,6 +73,50 @@ def etag(version: int) -> str:
     return f'"{version}"'
 
 
+def accepted_versions(if_match: str) -> set[int] | None:
+    """The versions If-Match accepts, or None for `*`, which matches any existing note.
+
+    Weak ETags never match for If-Match (RFC 9110, section 13.1.1), so a list with only weak or
+    unknown ETags fails with 412.
+    """
+    if if_match.strip() == "*":
+        return None
+    versions: set[int] = set()
+    weak = False
+    for item in if_match.split(","):
+        tag = ENTITY_TAG.fullmatch(item.strip())
+        if tag is None:
+            raise ProblemError(
+                Slug.VERSION_MISMATCH,
+                f"If-Match {if_match} isn't a list of ETags. Send the ETag from your last read, "
+                'such as "3".',
+            )
+        if tag[1]:
+            weak = True
+        elif tag[2].isdigit() and int(tag[2]) <= MAX_VERSION:
+            versions.add(int(tag[2]))
+    if not versions:
+        detail = (
+            f"If-Match {if_match} has only weak ETags, which never match. Send the strong ETag "
+            'from your last read, such as "3".'
+            if weak
+            else f"If-Match {if_match} is not a current ETag."
+        )
+        raise ProblemError(Slug.VERSION_MISMATCH, detail)
+    return versions
+
+
+def fingerprint(request: Request, body: ApiModel) -> str:
+    """Hashes the method, path, and the whole validated body, so new fields are covered too."""
+    canonical = json.dumps(
+        body.model_dump(mode="json", by_alias=True),
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    )
+    return hashlib.sha256(f"{request.method} {request.url.path}\n{canonical}".encode()).hexdigest()
+
+
 def not_found(note_id: str) -> ProblemError:
     return ProblemError(Slug.NOT_FOUND, f"Note {note_id} does not exist.")
 
@@ -91,9 +137,16 @@ async def find(session: AsyncSession, note_id: UUID, user_id: UUID) -> Note | No
     status_code=status.HTTP_201_CREATED,
     operation_id="createNote",
     summary="Create a note",
-    responses=responses(
-        Slug.VALIDATION_FAILED, Slug.UNAUTHORIZED, Slug.IDEMPOTENCY_KEY_REUSED, Slug.RATE_LIMITED
-    ),
+    responses={
+        **responses(Slug.VALIDATION_FAILED, Slug.UNAUTHORIZED, Slug.IDEMPOTENCY_KEY_REUSED),
+        201: {
+            "headers": {
+                "ETag": header("ETag"),
+                "Location": header("Location"),
+                "Idempotency-Replayed": header("IdempotencyReplayed"),
+            }
+        },
+    },
 )
 async def create_note(
     body: CreateNote,
@@ -117,7 +170,7 @@ async def create_note(
 
     endpoint = f"{request.method} {request.scope['route'].path}"
     note, replayed = await create_idempotently(
-        session, user.id, endpoint, idempotency_key, title, body.body
+        session, user.id, endpoint, idempotency_key, fingerprint(request, body), title, body.body
     )
     response.headers["ETag"] = etag(note.version)
     response.headers["Location"] = f"/v1/notes/{note.id}"
@@ -127,7 +180,13 @@ async def create_note(
 
 
 async def create_idempotently(
-    session: AsyncSession, user_id: UUID, endpoint: str, key: str | None, title: str, body: str
+    session: AsyncSession,
+    user_id: UUID,
+    endpoint: str,
+    key: str | None,
+    request_hash: str,
+    title: str,
+    body: str,
 ) -> tuple[NoteOut, bool]:
     """Writes the key and the note in one transaction, so a retry replays instead of duplicating.
 
@@ -136,9 +195,6 @@ async def create_idempotently(
     """
     claim: UUID | None = None
     if key is not None:
-        request_hash = hashlib.sha256(
-            json.dumps({"title": title, "body": body}, separators=(",", ":")).encode()
-        ).hexdigest()
         statement = insert(IdempotencyKey).values(
             user_id=user_id,
             endpoint=endpoint,
@@ -203,7 +259,7 @@ async def create_idempotently(
     "",
     operation_id="listNotes",
     summary="List notes, newest first",
-    responses=responses(Slug.VALIDATION_FAILED, Slug.UNAUTHORIZED, Slug.RATE_LIMITED),
+    responses=responses(Slug.VALIDATION_FAILED, Slug.UNAUTHORIZED),
 )
 async def list_notes(
     user: Authenticated,
@@ -231,7 +287,10 @@ async def list_notes(
     "/{note_id}",
     operation_id="getNote",
     summary="Get a note",
-    responses=responses(Slug.UNAUTHORIZED, Slug.NOT_FOUND, Slug.RATE_LIMITED),
+    responses={
+        **responses(Slug.UNAUTHORIZED, Slug.NOT_FOUND),
+        200: {"headers": {"ETag": header("ETag")}},
+    },
 )
 async def get_note(
     note_id: str, user: Authenticated, session: DbSession, response: Response
@@ -248,14 +307,16 @@ async def get_note(
     "/{note_id}",
     operation_id="updateNote",
     summary="Update a note",
-    responses=responses(
-        Slug.VALIDATION_FAILED,
-        Slug.UNAUTHORIZED,
-        Slug.NOT_FOUND,
-        Slug.VERSION_MISMATCH,
-        Slug.PRECONDITION_REQUIRED,
-        Slug.RATE_LIMITED,
-    ),
+    responses={
+        **responses(
+            Slug.VALIDATION_FAILED,
+            Slug.UNAUTHORIZED,
+            Slug.NOT_FOUND,
+            Slug.VERSION_MISMATCH,
+            Slug.PRECONDITION_REQUIRED,
+        ),
+        200: {"headers": {"ETag": header("ETag")}},
+    },
 )
 async def update_note(
     note_id: str,
@@ -264,7 +325,13 @@ async def update_note(
     session: DbSession,
     response: Response,
     if_match: Annotated[
-        str | None, Header(description="The ETag from your last read of this note.")
+        str | None,
+        Header(
+            description=(
+                "The ETag from your last read of this note, or `*` to update whatever the "
+                "current version is. Weak ETags never match."
+            )
+        ),
     ] = None,
 ) -> NoteOut:
     if if_match is None:
@@ -272,27 +339,25 @@ async def update_note(
             Slug.PRECONDITION_REQUIRED,
             "Send the If-Match header with the ETag from your last read of this note.",
         )
-    match = IF_MATCH.match(if_match)
-    if match is None or int(match[1]) > 2**31 - 1:
-        raise ProblemError(Slug.VERSION_MISMATCH, f"If-Match {if_match} is not a current ETag.")
-    version = int(match[1])
+    versions = accepted_versions(if_match)
     parsed = parse_id(Prefix.NOTE, note_id)
     if parsed is None:
         raise not_found(note_id)
 
     changes = patch.model_dump(exclude_unset=True, exclude_none=True)
     if not changes:
-        raise invalid("body", "needs title, body, or both")
+        raise invalid("", "needs title, body, or both")
     if "title" in changes:
         changes["title"] = changes["title"].strip()
         if not changes["title"]:
             raise invalid("title", "must not be blank")
     check_text(**changes)
 
+    matches_version = Note.version.in_(versions) if versions is not None else true()
     row = (
         await session.execute(
             update(Note)
-            .where(Note.id == parsed, Note.user_id == user.id, Note.version == version)
+            .where(Note.id == parsed, Note.user_id == user.id, matches_version)
             .values(**changes, version=Note.version + 1, updated_at=func.now())
             .returning(Note)
         )
@@ -315,7 +380,7 @@ async def update_note(
     status_code=status.HTTP_204_NO_CONTENT,
     operation_id="deleteNote",
     summary="Delete a note",
-    responses=responses(Slug.UNAUTHORIZED, Slug.NOT_FOUND, Slug.RATE_LIMITED),
+    responses=responses(Slug.UNAUTHORIZED, Slug.NOT_FOUND),
 )
 async def delete_note(note_id: str, user: Authenticated, session: DbSession) -> None:
     parsed = parse_id(Prefix.NOTE, note_id)

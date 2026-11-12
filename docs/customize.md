@@ -12,7 +12,7 @@ Copy the shape of `notes`:
 2. Autogenerate a migration, read it, then apply it:
 
    ```sh
-   uv run --env-file .env alembic revision --autogenerate -m "add projects"
+   make migration name="add projects"
    make migrate
    ```
 
@@ -40,4 +40,4 @@ Delete `src/app/jobs.py`, `src/app/email.py`, and `tests/integration/test_jobs.p
 
 ## Remove tracing
 
-Delete `src/app/telemetry.py` and its call in `src/app/main.py`, then run `uv remove` for the `opentelemetry-*` packages. Error logging keeps working.
+Delete `src/app/telemetry.py`, its calls in `src/app/main.py` and `src/app/jobs.py`, the `trace_id` lines in `src/app/log.py`, and `suppress_instrumentation` in `src/app/health.py`. Then run `uv remove` for the `opentelemetry-*` packages. Error logging keeps working.

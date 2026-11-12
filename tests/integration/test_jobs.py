@@ -6,6 +6,8 @@ from typing import Any
 import httpx2
 import psycopg
 import pytest
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from procrastinate.testing import InMemoryConnector
 
 from app import jobs
@@ -62,7 +64,64 @@ async def test_the_cleanup_runs_every_hour() -> None:
         periodic.task.name: periodic.cron
         for periodic in jobs.queue.periodic_registry.periodic_tasks.values()
     }
-    assert schedules == {"delete_expired_rows": "7 * * * *"}
+    assert schedules == {"delete_expired_rows": "7 * * * *", "retry_stalled_jobs": "*/5 * * * *"}
+
+
+async def test_retries_a_job_left_running_by_a_worker_that_died(
+    database: Database, real_queue: RecordingSender, owner: psycopg.AsyncConnection
+) -> None:
+    await owner.execute("delete from procrastinate_jobs")
+    dead = await (
+        await owner.execute(
+            "insert into procrastinate_workers (last_heartbeat) "
+            "values (now() - interval '10 minutes') returning id"
+        )
+    ).fetchone()
+    alive = await (
+        await owner.execute("insert into procrastinate_workers default values returning id")
+    ).fetchone()
+    assert dead is not None
+    assert alive is not None
+    for worker_id, user_id in ((dead[0], "stalled"), (alive[0], "running")):
+        await owner.execute(
+            "insert into procrastinate_jobs (queue_name, task_name, args, status, worker_id) "
+            "values ('default', 'send_welcome_email', %s, 'doing', %s)",
+            [f'{{"user_id": "{user_id}"}}', worker_id],
+        )
+    async with jobs.queue.open_async():
+        retried = await jobs.retry_stalled(jobs.queue.job_manager)
+    statuses = await (
+        await owner.execute(
+            "select args->>'user_id', status from procrastinate_jobs order by args->>'user_id'"
+        )
+    ).fetchall()
+    assert retried == 1
+    assert statuses == [("running", "doing"), ("stalled", "todo")]
+
+
+async def test_the_worker_traces_each_job(
+    database: Database, real_queue: RecordingSender, owner: psycopg.AsyncConnection
+) -> None:
+    await owner.execute("delete from procrastinate_jobs")
+    async with jobs.queue.open_async():
+        await jobs.send_welcome_email.defer_async(user_id="00000000-0000-0000-0000-000000000000")
+    spans = InMemorySpanExporter()
+    await jobs.run_worker(
+        settings(database),
+        span_processor=SimpleSpanProcessor(spans),
+        wait=False,
+        install_signal_handlers=False,
+    )
+    finished = spans.get_finished_spans()
+    job = next(span for span in finished if span.name == "job send_welcome_email")
+    assert job.attributes is not None
+    assert job.attributes["messaging.system"] == "procrastinate"
+    assert any(
+        span.context.trace_id == job.context.trace_id
+        and span.attributes
+        and "db.statement" in span.attributes
+        for span in finished
+    )
 
 
 class BrokenQueue(InMemoryConnector):

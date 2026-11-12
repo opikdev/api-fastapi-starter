@@ -4,6 +4,52 @@ All notable changes to this repo are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Security
+
+- Rate limits key IPv6 clients by their /64, and IPv4-mapped IPv6 addresses as IPv4, so one host can't rotate addresses for a fresh budget.
+- `POST /v1/sessions` locks an email after `LOGIN_FAILURE_LIMIT` failed logins (default 5) for `LOGIN_FAILURE_WINDOW_SECONDS` (default 900), keyed by a hash of the email whether or not the account exists. Its 429 still costs a password hash, so it reveals nothing.
+- Every response sends `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'`, and `/docs` gets a CSP that allows only its own scripts and styles.
+- Every `/v1` response sends `Cache-Control: no-store`, not just login.
+- `/docs` serves Swagger UI from the pinned `fastapi-swagger` package instead of jsDelivr, with no inline script and no third-party favicon.
+- The image drops pip, pins its base images by digest, and the release scans it with Trivy before pushing, then publishes an SBOM and a build provenance attestation. CI scans it too.
+- `docker/postgres/init.sql` no longer holds a password. Compose sets the `api_app` password from `APP_DB_PASSWORD`, and `docs/deploy.md` shows how to set it from a secret store.
+
+### Changed
+
+- **Breaking:** rate-limit headers follow draft-ietf-httpapi-ratelimit-headers: `RateLimit-Policy` and `RateLimit` replace `RateLimit-Limit`, `RateLimit-Remaining`, and `RateLimit-Reset`. On a 429, `RateLimit` and `Retry-After` describe only the limit that was exceeded. CORS exposes the new headers.
+- **Breaking:** `/docs` and `/openapi.json` return 404 unless `DOCS_ENABLED` is `true`. `.env.example`, Compose, and the tests turn it on.
+- The OpenAPI title is the project name, `api-fastapi-starter`, and the version comes from `pyproject.toml`. Problem responses and headers are shared components, and every operation documents the problems middleware can return, such as 403, 413, 415, 429, and 500.
+- **Breaking:** `validation-failed` entries about the whole body, such as malformed JSON or `PATCH {}`, have `field: ""` instead of `"body"`.
+- Login accepts any non-empty password, so a stricter registration policy can't lock out existing users. Registration still needs 12 to 128 characters.
+- `If-Match: *` updates a note at any version, a list of ETags matches if any one does, and weak ETags get 412 with a detail that says they never match.
+- The idempotency fingerprint hashes the method, path, and canonical JSON of the whole validated body, so new fields are covered.
+- Uvicorn runs with its `standard` extras, uvloop and httptools, and keeps idle connections for `KEEP_ALIVE_TIMEOUT_SECONDS` (default 75), above common load balancer idle timeouts.
+- `/healthz` and `/readyz` log at `debug` and aren't traced.
+- Compose builds the image once and runs it read-only for migrate, seed, api, and worker.
+- `pik new` renames the README title and the OpenAPI title, resets the version to 0.1.0, and starts a fresh `CHANGELOG.md`.
+- FastAPI is 0.162.5 and procrastinate is 3.11.0. Migration `0004` applies procrastinate's 3.11.0 schema change.
+- `renovate.json` waits 3 days before proposing a release and pins Docker digests.
+
+### Added
+
+- Graceful drain: on `SIGTERM`, `/readyz` returns 503 while the API keeps serving for `SHUTDOWN_DRAIN_SECONDS` (default 5), then in-flight requests get `SHUTDOWN_TIMEOUT_SECONDS` (default 30). The worker waits the same timeout for running jobs. Compose sets `stop_grace_period: 40s`.
+- `migrate` holds a Postgres advisory lock and sets `lock_timeout` to 5 seconds, so concurrent runs both succeed and DDL never stalls traffic for long.
+- A `retry_stalled_jobs` job every 5 minutes, which retries jobs left `doing` by a worker that died.
+- OpenTelemetry metrics over OTLP whenever traces are exported, with HTTP server and database pool metrics. Worker jobs are traced, and JSON log lines carry `trace_id` and `span_id`.
+- Constraint violations that reach the error handler become problems without internals: unique and foreign key violations are 409 `conflict`, and check violations are 400 `validation-failed`.
+- `make migration name="..."` numbers revisions in order, and Alembic runs Ruff on each new revision. A test enforces the numbering.
+- `docs/deploy.md`, a go-live guide, and ADRs 008 and 009.
+
+### Fixed
+
+- The image health check imports only the standard library. It took over a second, and over 8 seconds on a quarter CPU, past its 3-second timeout.
+- The OpenAPI document keeps the real 422 `idempotency-key-reused` on `POST /v1/notes`, and drops only FastAPI's default validation 422.
+- The release workflow runs the end-to-end tests and the migration check before it publishes.
+- `make check-generated` explains what to stage instead of printing a raw diff, and catches new untracked client files.
+- `POSTGRES_PORT` reaches the `make` targets through `.env.example`.
+- Uvicorn's `color_message` field, with terminal color codes, no longer appears in JSON logs.
+- The security workflow's SBOM job has read-only permissions.
+
 ## [0.3.0] - 2026-11-11
 
 ### Added

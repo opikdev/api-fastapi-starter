@@ -3,16 +3,19 @@
 import argparse
 import asyncio
 import json
+import logging
 import os
 import sys
-import urllib.request
+import time
 from importlib.resources import files
+from types import FrameType
 
 import uvicorn
 from alembic import command
 from alembic.config import Config
+from fastapi import FastAPI
 
-from app import jobs
+from app import healthcheck, jobs
 from app.config import ConfigError, load_seed_settings, load_settings
 from app.db import create_engine
 from app.log import configure_logging
@@ -29,18 +32,58 @@ COMMANDS = {
 }
 
 
+logger = logging.getLogger("app.cli")
+
+
+class DrainingServer(uvicorn.Server):
+    """On the first SIGTERM or SIGINT, fails readiness but keeps serving, then shuts down.
+
+    The drain gives load balancers time to stop sending requests before connections close.
+    A second signal skips the rest of the drain.
+    """
+
+    def __init__(self, config: uvicorn.Config, app: FastAPI, drain_seconds: int) -> None:
+        super().__init__(config)
+        self.app = app
+        self.drain_seconds = drain_seconds
+        self.drain_until: float | None = None
+        self.pending_exit: tuple[int, FrameType | None] | None = None
+        self.announced = False
+
+    def handle_exit(self, sig: int, frame: FrameType | None) -> None:
+        if self.drain_until is None:
+            self.app.state.draining = True
+            self.drain_until = time.monotonic() + self.drain_seconds
+            self.pending_exit = (sig, frame)
+            return
+        super().handle_exit(sig, frame)
+
+    async def on_tick(self, counter: int) -> bool:
+        if self.drain_until is not None and not self.announced:
+            # Logged here, not in the signal handler, which may interrupt another log call.
+            logger.info("Draining before shutdown", extra={"seconds": self.drain_seconds})
+            self.announced = True
+        if self.pending_exit and time.monotonic() >= (self.drain_until or 0):
+            super().handle_exit(*self.pending_exit)
+            self.pending_exit = None
+        return await super().on_tick(counter)
+
+
 def _serve() -> None:
     settings = load_settings()
     configure_logging(settings.log_level)
-    uvicorn.run(
-        create_app(settings),
+    app = create_app(settings)
+    config = uvicorn.Config(
+        app,
         host="0.0.0.0",  # noqa: S104 - the container needs it, and Compose binds the port to localhost
         port=settings.port,
         log_config=None,
         access_log=False,
         proxy_headers=False,
-        timeout_graceful_shutdown=10,
+        timeout_keep_alive=settings.keep_alive_timeout_seconds,
+        timeout_graceful_shutdown=settings.shutdown_timeout_seconds,
     )
+    DrainingServer(config, app, settings.shutdown_drain_seconds).run()
 
 
 def _migrate() -> None:
@@ -82,16 +125,6 @@ def _worker() -> None:
     asyncio.run(jobs.run_worker(settings, install_signal_handlers=True))
 
 
-def _healthcheck() -> None:
-    port = int(os.environ.get("PORT", "3000"))
-    try:
-        with urllib.request.urlopen(f"http://127.0.0.1:{port}/healthz", timeout=2) as response:
-            ok = response.status == 200
-    except OSError:
-        ok = False
-    sys.exit(0 if ok else 1)
-
-
 def _openapi() -> None:
     # The document doesn't need a database, so a placeholder URL is enough.
     if not os.environ.get("DATABASE_URL"):
@@ -113,7 +146,7 @@ def main(argv: list[str] | None = None) -> None:
         "migrate": _migrate,
         "seed": _seed,
         "worker": _worker,
-        "healthcheck": _healthcheck,
+        "healthcheck": healthcheck.main,
         "openapi": _openapi,
     }
     try:

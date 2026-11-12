@@ -1,11 +1,12 @@
 from http import HTTPStatus
-from typing import Any
+from typing import Any, cast
 from urllib.parse import quote
 
 import httpx2
 
 from ... import errors
 from ...client import AuthenticatedClient, Client
+from ...models.problem_body import ProblemBody
 from ...types import Response
 
 
@@ -25,18 +26,35 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx2.Response
-) -> Any | None:
+) -> Any | ProblemBody | None:
     if response.status_code == 204:
-        return None
+        response_204 = cast(Any, None)
+        return response_204
 
     if response.status_code == 401:
-        return None
+        response_401 = ProblemBody.from_dict(response.json())
+
+        return response_401
+
+    if response.status_code == 403:
+        response_403 = ProblemBody.from_dict(response.json())
+
+        return response_403
 
     if response.status_code == 404:
-        return None
+        response_404 = ProblemBody.from_dict(response.json())
+
+        return response_404
 
     if response.status_code == 429:
-        return None
+        response_429 = ProblemBody.from_dict(response.json())
+
+        return response_429
+
+    if response.status_code == 500:
+        response_500 = ProblemBody.from_dict(response.json())
+
+        return response_500
 
     if client.raise_on_unexpected_status:
         raise errors.UnexpectedStatus(response.status_code, response.content)
@@ -46,7 +64,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx2.Response
-) -> Response[Any]:
+) -> Response[Any | ProblemBody]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -59,7 +77,7 @@ def sync_detailed(
     note_id: str,
     *,
     client: AuthenticatedClient,
-) -> Response[Any]:
+) -> Response[Any | ProblemBody]:
     """Delete a note
 
     Args:
@@ -70,7 +88,7 @@ def sync_detailed(
         httpx2.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[Any]
+        Response[Any | ProblemBody]
     """
 
     kwargs = _get_kwargs(
@@ -84,11 +102,11 @@ def sync_detailed(
     return _build_response(client=client, response=response)
 
 
-async def asyncio_detailed(
+def sync(
     note_id: str,
     *,
     client: AuthenticatedClient,
-) -> Response[Any]:
+) -> Any | ProblemBody | None:
     """Delete a note
 
     Args:
@@ -99,7 +117,31 @@ async def asyncio_detailed(
         httpx2.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[Any]
+        Any | ProblemBody
+    """
+
+    return sync_detailed(
+        note_id=note_id,
+        client=client,
+    ).parsed
+
+
+async def asyncio_detailed(
+    note_id: str,
+    *,
+    client: AuthenticatedClient,
+) -> Response[Any | ProblemBody]:
+    """Delete a note
+
+    Args:
+        note_id (str):
+
+    Raises:
+        errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
+        httpx2.TimeoutException: If the request takes longer than Client.timeout.
+
+    Returns:
+        Response[Any | ProblemBody]
     """
 
     kwargs = _get_kwargs(
@@ -109,3 +151,29 @@ async def asyncio_detailed(
     response = await client.get_async_httpx_client().request(**kwargs)
 
     return _build_response(client=client, response=response)
+
+
+async def asyncio(
+    note_id: str,
+    *,
+    client: AuthenticatedClient,
+) -> Any | ProblemBody | None:
+    """Delete a note
+
+    Args:
+        note_id (str):
+
+    Raises:
+        errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
+        httpx2.TimeoutException: If the request takes longer than Client.timeout.
+
+    Returns:
+        Any | ProblemBody
+    """
+
+    return (
+        await asyncio_detailed(
+            note_id=note_id,
+            client=client,
+        )
+    ).parsed

@@ -1,7 +1,8 @@
+-- Creates the app role without a password. Set it with set-app-password.sh, never in this file.
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'api_app') THEN
-    CREATE ROLE api_app LOGIN PASSWORD 'api_app_dev_password';
+    CREATE ROLE api_app LOGIN;
   END IF;
 END
 $$;

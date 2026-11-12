@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import httpx2
+from fastapi import FastAPI
 from procrastinate.testing import InMemoryConnector
 
 from app import jobs
@@ -21,6 +22,7 @@ PASSWORD = "correct-horse-battery"
 class Api:
     http: httpx2.AsyncClient
     jobs: InMemoryConnector
+    app: FastAPI
 
     async def sign_up(self, email: str | None = None) -> User:
         email = email or f"user-{secrets.token_hex(6)}@example.com"
@@ -58,6 +60,8 @@ def settings(database: Database, **overrides: str) -> Settings:
         "DATABASE_URL": database.app_url,
         "RATE_LIMIT_PER_MINUTE": "100000",
         "AUTH_RATE_LIMIT_PER_MINUTE": "100000",
+        "LOGIN_FAILURE_LIMIT": "100000",
+        "DOCS_ENABLED": "true",
         **overrides,
     }
     return load_settings(env)
@@ -77,7 +81,7 @@ async def api(
                 transport=httpx2.ASGITransport(app=app), base_url="http://testserver"
             ) as http,
         ):
-            yield Api(http, connector)
+            yield Api(http, connector, app)
 
 
 def assert_problem(response: httpx2.Response, status: int, slug: str) -> dict[str, Any]:

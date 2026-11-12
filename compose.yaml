@@ -1,5 +1,10 @@
 name: api-fastapi-starter
 
+x-app: &app
+  image: api-fastapi-starter:local
+  read_only: true
+  tmpfs: [/tmp]
+
 services:
   db:
     image: postgres:18-alpine
@@ -7,10 +12,12 @@ services:
       POSTGRES_USER: api_owner
       POSTGRES_PASSWORD: api_owner_dev_password
       POSTGRES_DB: api
+      APP_DB_PASSWORD: api_app_dev_password
     ports:
       - 127.0.0.1:${POSTGRES_PORT:-5432}:5432
     volumes:
       - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./docker/postgres/set-app-password.sh:/docker-entrypoint-initdb.d/set-app-password.sh:ro
       - db-data:/var/lib/postgresql
     healthcheck:
       # Over TCP, because the temporary server used during first-time setup only listens on a socket.
@@ -19,7 +26,9 @@ services:
       timeout: 3s
       retries: 90
 
+  # Builds the image once. The other services run the same image.
   migrate:
+    <<: *app
     build: .
     command: [migrate]
     environment:
@@ -29,7 +38,7 @@ services:
         condition: service_healthy
 
   seed:
-    build: .
+    <<: *app
     command: [seed]
     environment:
       MIGRATION_DATABASE_URL: postgres://api_owner:api_owner_dev_password@db:5432/api
@@ -38,20 +47,24 @@ services:
         condition: service_completed_successfully
 
   api:
-    build: .
+    <<: *app
     environment:
       DATABASE_URL: postgres://api_app:api_app_dev_password@db:5432/api
+      DOCS_ENABLED: "true"
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      OTEL_METRIC_EXPORT_INTERVAL: ${OTEL_METRIC_EXPORT_INTERVAL:-60000}
     extra_hosts:
       - host.docker.internal:host-gateway
     ports:
       - 127.0.0.1:${PORT:-3000}:3000
+    # Above SHUTDOWN_DRAIN_SECONDS plus SHUTDOWN_TIMEOUT_SECONDS, so Docker never kills a drain.
+    stop_grace_period: 40s
     depends_on:
       seed:
         condition: service_completed_successfully
 
   worker:
-    build: .
+    <<: *app
     command: [worker]
     # The worker serves no HTTP, so replace the image's health check with one that only confirms
     # the container is running. `docker compose up --wait` needs every service to have one.
@@ -61,8 +74,11 @@ services:
     environment:
       DATABASE_URL: postgres://api_app:api_app_dev_password@db:5432/api
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      OTEL_METRIC_EXPORT_INTERVAL: ${OTEL_METRIC_EXPORT_INTERVAL:-60000}
     extra_hosts:
       - host.docker.internal:host-gateway
+    # Above SHUTDOWN_TIMEOUT_SECONDS, the longest the worker waits for running jobs.
+    stop_grace_period: 40s
     depends_on:
       seed:
         condition: service_completed_successfully
