@@ -33,6 +33,7 @@ verify: lint check-generated test
 	.github/scripts/check-repo-standards.sh
 
 e2e:
+	uv run playwright install chromium
 	uv run pytest tests/e2e
 
 dev:

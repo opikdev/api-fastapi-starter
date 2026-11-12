@@ -4,6 +4,10 @@ All notable changes to this repo are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Fixed
+
+- `make e2e` installs Playwright's Chromium first, so a freshly generated project passes it without a manual browser install.
+
 ## [0.4.0] - 2026-11-12
 
 ### Security
