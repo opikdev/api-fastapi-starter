@@ -4,7 +4,7 @@
 set -euo pipefail
 
 : "${APP_DB_PASSWORD:?Set APP_DB_PASSWORD to the password for the api_app role}"
-psql -v ON_ERROR_STOP=1 -v app_password="$APP_DB_PASSWORD" \
-  --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<'SQL'
+psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<'SQL'
+\getenv app_password APP_DB_PASSWORD
 ALTER ROLE api_app PASSWORD :'app_password';
 SQL

@@ -32,10 +32,11 @@ The API and worker connect as `api_app`, which can read and write rows but can't
 
 1. Create the owner role with your provider, and use it as `MIGRATION_DATABASE_URL`.
 2. Run `docker/postgres/init.sql` once as that role, so tables that migrations create are granted to `api_app`. It creates `api_app` without a password.
-3. Set the `api_app` password from your secret store, without writing it into a file:
+3. Set the `api_app` password from your secret store. psql reads it from the environment, so it stays out of files, shell history and the process list:
 
    ```sh
-   psql "$MIGRATION_DATABASE_URL" -v app_password="$APP_DB_PASSWORD" <<'SQL'
+   psql "$MIGRATION_DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+   \getenv app_password APP_DB_PASSWORD
    ALTER ROLE api_app PASSWORD :'app_password';
    SQL
    ```
