@@ -2,15 +2,18 @@ import asyncio
 import ipaddress
 import json
 import logging
+import re
 import secrets
 from collections.abc import AsyncIterator
 
 import httpx2
 import psycopg
 import pytest
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.config import database_url
+from app.dependencies import DbSession
 from app.main import create_app
 from tests.conftest import ROOT, Database
 from tests.helpers import PASSWORD, api, assert_problem, settings
@@ -19,7 +22,20 @@ pytestmark = pytest.mark.anyio
 
 
 def ip() -> str:
-    return str(ipaddress.ip_address(f"2001:db8::{secrets.token_hex(2)}:{secrets.token_hex(2)}"))
+    """A fresh client: a random /64, since every address in a /64 shares one budget."""
+    return str(ipaddress.ip_address(f"2001:db8:{secrets.token_hex(2)}:{secrets.token_hex(2)}::1"))
+
+
+RATELIMIT = re.compile(r'^"(?P<name>[a-z]+)";r=(?P<r>\d+);t=(?P<t>\d+)$')
+
+
+def ratelimit_state(response: httpx2.Response) -> dict[str, tuple[int, int]]:
+    states = {}
+    for item in response.headers["ratelimit"].split(", "):
+        match = RATELIMIT.match(item)
+        assert match, response.headers["ratelimit"]
+        states[match["name"]] = (int(match["r"]), int(match["t"]))
+    return states
 
 
 async def test_rate_limit_blocks_login_after_the_auth_limit_with_retry_after(
@@ -35,27 +51,73 @@ async def test_rate_limit_blocks_login_after_the_auth_limit_with_retry_after(
         blocked = await client.http.post("/v1/sessions", json=body, headers=headers)
     assert statuses == [401, 401, 429]
     assert_problem(blocked, 429, "rate-limited")
-    assert 1 <= int(blocked.headers["retry-after"]) <= 60
+    assert blocked.headers["ratelimit-policy"] == '"global";q=100000;w=60, "auth";q=2;w=60'
+    remaining, reset = ratelimit_state(blocked)["auth"]
+    assert ratelimit_state(blocked).keys() == {"auth"}
+    assert remaining == 0
+    assert 1 <= reset <= 60
+    assert blocked.headers["retry-after"] == str(reset)
 
 
 async def test_rate_limit_applies_the_global_limit_to_every_v1_route(database: Database) -> None:
     async with api(database, RATE_LIMIT_PER_MINUTE="2", TRUST_PROXY_HOPS="1") as client:
         headers = {"X-Forwarded-For": ip()}
-        statuses = [
-            (await client.http.get(path, headers=headers)).status_code
+        responses = [
+            await client.http.get(path, headers=headers)
             for path in ("/v1/notes", "/v1/users/me", "/v1/notes/x")
         ]
-    assert statuses == [401, 401, 429]
+    assert [response.status_code for response in responses] == [401, 401, 429]
+    blocked = responses[-1]
+    assert blocked.headers["ratelimit-policy"] == '"global";q=2;w=60'
+    assert ratelimit_state(blocked)["global"][0] == 0
+    assert blocked.headers["retry-after"] == str(ratelimit_state(blocked)["global"][1])
 
 
 async def test_rate_limit_reports_the_remaining_budget(database: Database) -> None:
     async with api(database, RATE_LIMIT_PER_MINUTE="5", TRUST_PROXY_HOPS="1") as client:
         response = await client.http.get("/v1/notes", headers={"X-Forwarded-For": ip()})
-    assert (response.headers["ratelimit-limit"], response.headers["ratelimit-remaining"]) == (
-        "5",
-        "4",
-    )
-    assert 1 <= int(response.headers["ratelimit-reset"]) <= 60
+    assert response.headers["ratelimit-policy"] == '"global";q=5;w=60'
+    remaining, reset = ratelimit_state(response)["global"]
+    assert remaining == 4
+    assert 1 <= reset <= 60
+    for old in ("ratelimit-limit", "ratelimit-remaining", "ratelimit-reset"):
+        assert old not in response.headers
+
+
+async def test_rate_limit_reports_the_auth_policy_next_to_the_global_one(
+    database: Database,
+) -> None:
+    async with api(
+        database, RATE_LIMIT_PER_MINUTE="300", AUTH_RATE_LIMIT_PER_MINUTE="10", TRUST_PROXY_HOPS="1"
+    ) as client:
+        response = await client.http.post(
+            "/v1/sessions",
+            json={"email": "nobody@example.com", "password": PASSWORD},
+            headers={"X-Forwarded-For": ip()},
+        )
+    assert response.status_code == 401
+    assert response.headers["ratelimit-policy"] == '"global";q=300;w=60, "auth";q=10;w=60'
+    states = ratelimit_state(response)
+    assert (states["global"][0], states["auth"][0]) == (299, 9)
+
+
+@pytest.mark.parametrize(
+    ("first", "second", "shared"),
+    [
+        ("2001:db8:5:6::1", "2001:db8:5:6:ffff:ffff:ffff:ffff", True),
+        ("2001:db8:5:6::1", "2001:db8:5:7::1", False),
+        ("198.51.100.23", "::ffff:198.51.100.23", True),
+        ("198.51.100.23", "198.51.100.24", False),
+    ],
+)
+async def test_rate_limit_keys_ipv6_clients_by_their_64_prefix(
+    database: Database, owner: psycopg.AsyncConnection, first: str, second: str, shared: bool
+) -> None:
+    await owner.execute("delete from rate_limits where key like 'global:%'")
+    async with api(database, RATE_LIMIT_PER_MINUTE="1", TRUST_PROXY_HOPS="1") as client:
+        await client.http.get("/v1/notes", headers={"X-Forwarded-For": first})
+        response = await client.http.get("/v1/notes", headers={"X-Forwarded-For": second})
+    assert response.status_code == (429 if shared else 401)
 
 
 async def test_rate_limit_counts_concurrent_requests_exactly(database: Database) -> None:
@@ -77,7 +139,7 @@ async def test_rate_limit_starts_a_new_window_once_the_old_one_ends(
         assert (await client.http.get("/v1/notes", headers=headers)).status_code == 429
         await owner.execute(
             "update rate_limits set reset_at = now() - interval '1 second' where key = %s",
-            [f"global:{client_ip}"],
+            [f"global:{ipaddress.ip_network(f'{client_ip}/64', strict=False)}"],
         )
         assert (await client.http.get("/v1/notes", headers=headers)).status_code == 401
 
@@ -107,7 +169,7 @@ async def test_rejects_malformed_json(database: Database) -> None:
             "/v1/users", content=b'{"email":', headers={"Content-Type": "application/json"}
         )
     body = assert_problem(response, 400, "validation-failed")
-    assert body["errors"] == [{"field": "body", "detail": "isn't valid JSON"}]
+    assert body["errors"] == [{"field": "", "detail": "isn't valid JSON"}]
 
 
 async def test_rejects_a_json_body_that_is_not_utf_8(database: Database) -> None:
@@ -116,7 +178,7 @@ async def test_rejects_a_json_body_that_is_not_utf_8(database: Database) -> None
             "/v1/users", content=b'{"email": "\xff"}', headers={"Content-Type": "application/json"}
         )
     body = assert_problem(response, 400, "validation-failed")
-    assert body["errors"] == [{"field": "body", "detail": "couldn't be read"}]
+    assert body["errors"] == [{"field": "", "detail": "couldn't be read"}]
 
 
 @pytest.mark.parametrize("chunked", [False, True])
@@ -182,7 +244,29 @@ async def test_sets_security_headers_and_a_request_id(database: Database) -> Non
     assert response.headers["x-content-type-options"] == "nosniff"
     assert response.headers["x-frame-options"] == "SAMEORIGIN"
     assert response.headers["referrer-policy"] == "no-referrer"
+    assert (
+        response.headers["content-security-policy"] == "default-src 'none'; frame-ancestors 'none'"
+    )
     assert len(response.headers["x-request-id"]) == 32
+
+
+async def test_marks_every_v1_response_no_store(database: Database) -> None:
+    async with api(database, CORS_ORIGINS=TRUSTED) as client:
+        user = await client.sign_up()
+        responses = [
+            await user.request("GET", "/v1/notes"),
+            await client.http.get("/v1/notes"),
+            await client.http.get("/v1/nothing-here"),
+            await client.http.post("/v1/notes", json={}, headers=CROSS_SITE),
+            await client.http.post(
+                "/v1/users", content=b"x", headers={"Content-Type": "text/plain"}
+            ),
+        ]
+        health = await client.http.get("/healthz")
+    assert [response.status_code for response in responses] == [200, 401, 404, 403, 415]
+    assert {response.headers["cache-control"] for response in responses} == {"no-store"}
+    assert all("ratelimit" in response.headers for response in responses)
+    assert "cache-control" not in health.headers
 
 
 async def test_cors_allows_a_listed_origin_and_answers_a_preflight(database: Database) -> None:
@@ -201,9 +285,8 @@ async def test_cors_allows_a_listed_origin_and_answers_a_preflight(database: Dat
         "Location",
         "X-Request-Id",
         "Retry-After",
-        "RateLimit-Limit",
-        "RateLimit-Remaining",
-        "RateLimit-Reset",
+        "RateLimit",
+        "RateLimit-Policy",
         "Idempotency-Replayed",
     }
     assert preflight.status_code == 204
@@ -296,6 +379,19 @@ async def test_cors_sends_no_headers_by_default(database: Database) -> None:
     assert "access-control-allow-origin" not in response.headers
 
 
+async def test_reports_unready_while_draining_but_keeps_serving(database: Database) -> None:
+    async with api(database) as client:
+        user = await client.sign_up()
+        client.app.state.draining = True
+        ready = await client.http.get("/readyz")
+        live = await client.http.get("/healthz")
+        served = await user.request("GET", "/v1/users/me")
+    body = assert_problem(ready, 503, "service-unavailable")
+    assert body["detail"] == "The API is shutting down. Send traffic to another instance."
+    assert live.status_code == 200
+    assert served.status_code == 200
+
+
 async def test_reports_health_and_readiness(database: Database) -> None:
     async with api(database) as client:
         assert (await client.http.get("/healthz")).json() == {"status": "ok"}
@@ -335,15 +431,155 @@ async def test_logs_each_request_as_json_without_credentials(
     assert user.token not in caplog.text
 
 
+async def test_logs_health_checks_at_debug_only(
+    database: Database, caplog: pytest.LogCaptureFixture
+) -> None:
+    async with api(database) as client:
+        with caplog.at_level(logging.DEBUG, logger="app.http"):
+            await client.http.get("/healthz")
+            await client.http.get("/readyz")
+            await client.http.get("/v1/notes")
+    levels = {
+        getattr(record, "path", ""): record.levelno
+        for record in caplog.records
+        if record.message == "Request completed"
+    }
+    assert levels == {
+        "/healthz": logging.DEBUG,
+        "/readyz": logging.DEBUG,
+        "/v1/notes": logging.INFO,
+    }
+
+
 async def test_serves_an_openapi_document_that_matches_the_committed_one(
     database: Database,
 ) -> None:
     async with api(database) as client:
         served = (await client.http.get("/openapi.json")).json()
-        docs = await client.http.get("/docs")
     committed = json.loads((ROOT / "openapi.json").read_text())
     assert served == committed, "openapi.json is stale. Run make openapi and commit it"
-    assert docs.status_code == 200
-    responses = served["paths"]["/v1/notes"]["post"]["responses"]
-    assert "422" not in responses
-    assert "400" in responses
+    assert "HTTPValidationError" not in json.dumps(served)
+    assert served["info"]["title"] == "api-fastapi-starter"
+    create_note = served["paths"]["/v1/notes"]["post"]["responses"]
+    assert create_note["422"] == {"$ref": "#/components/responses/IdempotencyKeyReused"}
+    assert "422" not in served["paths"]["/v1/notes/{note_id}"]["patch"]["responses"]
+
+
+async def test_serves_swagger_ui_from_its_own_origin_under_a_strict_csp(
+    database: Database,
+) -> None:
+    async with api(database) as client:
+        page = await client.http.get("/docs")
+        assets = [
+            await client.http.get(f"/docs/assets/{name}")
+            for name in ("swagger-ui-bundle.js", "swagger-ui.css", "swagger-init.js")
+        ]
+    assert page.status_code == 200
+    assert "<script>" not in page.text
+    assert re.findall(r'(?:src|href)="([^"]+)"', page.text) == [
+        "/docs/assets/favicon-32x32.png",
+        "/docs/assets/swagger-ui.css",
+        "/docs/assets/swagger-ui-bundle.js",
+        "/docs/assets/swagger-init.js",
+    ]
+    assert page.headers["content-security-policy"] == (
+        "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
+        "connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+    )
+    assert [asset.status_code for asset in assets] == [200, 200, 200]
+
+
+async def test_hides_the_docs_and_the_document_unless_docs_are_enabled(
+    database: Database,
+) -> None:
+    async with api(database, DOCS_ENABLED="false") as client:
+        responses = [
+            await client.http.get(path)
+            for path in ("/docs", "/openapi.json", "/docs/assets/swagger-ui-bundle.js")
+        ]
+    for response in responses:
+        assert_problem(response, 404, "not-found")
+
+
+SAMPLE_PATH = re.compile(r"\{[^}]+\}")
+CHUNK = b"x" * 1024
+
+
+async def test_documents_every_problem_the_middleware_returns(database: Database) -> None:
+    """Sends each operation what middleware rejects, and checks the status is in the spec."""
+    async with api(database, RATE_LIMIT_PER_MINUTE="3", TRUST_PROXY_HOPS="1") as client:
+        spec = (await client.http.get("/openapi.json")).json()
+        checked = 0
+        for template, operations in spec["paths"].items():
+            if not template.startswith("/v1/"):
+                continue
+            path = SAMPLE_PATH.sub("note_00000000000000000000000000000000", template)
+            for method, operation in operations.items():
+                documented = set(operation["responses"])
+                assert {"429", "500"} <= documented, f"{method} {template}"
+                sent: dict[str, httpx2.Response] = {}
+                if method != "get":
+                    sent["403"] = await client.http.request(
+                        method, path, json={}, headers={"X-Forwarded-For": ip(), **CROSS_SITE}
+                    )
+                if "requestBody" in operation:
+                    sent["413"] = await client.http.request(
+                        method,
+                        path,
+                        content=CHUNK * 101,
+                        headers={"Content-Type": "application/json", "X-Forwarded-For": ip()},
+                    )
+                    sent["415"] = await client.http.request(
+                        method,
+                        path,
+                        content=b"x",
+                        headers={"Content-Type": "text/plain", "X-Forwarded-For": ip()},
+                    )
+                client_ip = ip()
+                for _ in range(4):
+                    sent["429"] = await client.http.request(
+                        method, path, headers={"X-Forwarded-For": client_ip}
+                    )
+                for status, response in sent.items():
+                    assert str(response.status_code) == status, f"{method} {template}"
+                    assert status in documented, f"{method} {template} doesn't document {status}"
+                    checked += 1
+    assert checked >= 20
+
+
+async def test_answers_a_constraint_violation_without_naming_the_constraint(
+    database: Database,
+) -> None:
+    app = create_app(settings(database))
+
+    async def violate(statement: str, session: DbSession) -> None:
+        await session.execute(text(statement))
+
+    app.add_api_route("/v1/test-constraint", violate, methods=["POST"])
+    statements = {
+        "insert into users (email, password_hash) values ('UPPER@example.com', 'x')": (
+            400,
+            "validation-failed",
+        ),
+        "insert into notes (user_id, title) values (uuidv7(), 'orphan')": (409, "conflict"),
+        "insert into users (email, password_hash) select email, 'x' from users limit 1": (
+            409,
+            "conflict",
+        ),
+    }
+    async with (
+        app.router.lifespan_context(app),
+        httpx2.AsyncClient(
+            transport=httpx2.ASGITransport(app=app), base_url="http://testserver"
+        ) as http,
+    ):
+        await http.post("/v1/users", json={"email": "someone@example.com", "password": PASSWORD})
+        for statement, (status, slug) in statements.items():
+            response = await http.post("/v1/test-constraint", params={"statement": statement})
+            body = assert_problem(response, status, slug)
+            assert "chk_" not in body["detail"]
+            assert "fk_" not in body["detail"]
+            assert "uq_" not in body["detail"]
+            assert "insert" not in response.text.lower()
+        other = await http.post("/v1/test-constraint", params={"statement": "select 1/0"})
+    assert_problem(other, 500, "internal-error")

@@ -1,5 +1,5 @@
 from http import HTTPStatus
-from typing import Any, cast
+from typing import Any
 from urllib.parse import quote
 
 import httpx2
@@ -7,6 +7,7 @@ import httpx2
 from ... import errors
 from ...client import AuthenticatedClient, Client
 from ...models.note_out import NoteOut
+from ...models.problem_body import ProblemBody
 from ...models.update_note import UpdateNote
 from ...types import UNSET, Response, Unset
 
@@ -38,35 +39,61 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx2.Response
-) -> Any | NoteOut | None:
+) -> NoteOut | ProblemBody | None:
     if response.status_code == 200:
         response_200 = NoteOut.from_dict(response.json())
 
         return response_200
 
     if response.status_code == 400:
-        response_400 = cast(Any, None)
+        response_400 = ProblemBody.from_dict(response.json())
+
         return response_400
 
     if response.status_code == 401:
-        response_401 = cast(Any, None)
+        response_401 = ProblemBody.from_dict(response.json())
+
         return response_401
 
+    if response.status_code == 403:
+        response_403 = ProblemBody.from_dict(response.json())
+
+        return response_403
+
     if response.status_code == 404:
-        response_404 = cast(Any, None)
+        response_404 = ProblemBody.from_dict(response.json())
+
         return response_404
 
     if response.status_code == 412:
-        response_412 = cast(Any, None)
+        response_412 = ProblemBody.from_dict(response.json())
+
         return response_412
 
+    if response.status_code == 413:
+        response_413 = ProblemBody.from_dict(response.json())
+
+        return response_413
+
+    if response.status_code == 415:
+        response_415 = ProblemBody.from_dict(response.json())
+
+        return response_415
+
     if response.status_code == 428:
-        response_428 = cast(Any, None)
+        response_428 = ProblemBody.from_dict(response.json())
+
         return response_428
 
     if response.status_code == 429:
-        response_429 = cast(Any, None)
+        response_429 = ProblemBody.from_dict(response.json())
+
         return response_429
+
+    if response.status_code == 500:
+        response_500 = ProblemBody.from_dict(response.json())
+
+        return response_500
 
     if client.raise_on_unexpected_status:
         raise errors.UnexpectedStatus(response.status_code, response.content)
@@ -76,7 +103,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx2.Response
-) -> Response[Any | NoteOut]:
+) -> Response[NoteOut | ProblemBody]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -91,12 +118,13 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: UpdateNote,
     if_match: None | str | Unset = UNSET,
-) -> Response[Any | NoteOut]:
+) -> Response[NoteOut | ProblemBody]:
     """Update a note
 
     Args:
         note_id (str):
-        if_match (None | str | Unset): The ETag from your last read of this note.
+        if_match (None | str | Unset): The ETag from your last read of this note, or `*` to update
+            whatever the current version is. Weak ETags never match.
         body (UpdateNote):
 
     Raises:
@@ -104,7 +132,7 @@ def sync_detailed(
         httpx2.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[Any | NoteOut]
+        Response[NoteOut | ProblemBody]
     """
 
     kwargs = _get_kwargs(
@@ -126,12 +154,13 @@ def sync(
     client: AuthenticatedClient,
     body: UpdateNote,
     if_match: None | str | Unset = UNSET,
-) -> Any | NoteOut | None:
+) -> NoteOut | ProblemBody | None:
     """Update a note
 
     Args:
         note_id (str):
-        if_match (None | str | Unset): The ETag from your last read of this note.
+        if_match (None | str | Unset): The ETag from your last read of this note, or `*` to update
+            whatever the current version is. Weak ETags never match.
         body (UpdateNote):
 
     Raises:
@@ -139,7 +168,7 @@ def sync(
         httpx2.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Any | NoteOut
+        NoteOut | ProblemBody
     """
 
     return sync_detailed(
@@ -156,12 +185,13 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: UpdateNote,
     if_match: None | str | Unset = UNSET,
-) -> Response[Any | NoteOut]:
+) -> Response[NoteOut | ProblemBody]:
     """Update a note
 
     Args:
         note_id (str):
-        if_match (None | str | Unset): The ETag from your last read of this note.
+        if_match (None | str | Unset): The ETag from your last read of this note, or `*` to update
+            whatever the current version is. Weak ETags never match.
         body (UpdateNote):
 
     Raises:
@@ -169,7 +199,7 @@ async def asyncio_detailed(
         httpx2.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[Any | NoteOut]
+        Response[NoteOut | ProblemBody]
     """
 
     kwargs = _get_kwargs(
@@ -189,12 +219,13 @@ async def asyncio(
     client: AuthenticatedClient,
     body: UpdateNote,
     if_match: None | str | Unset = UNSET,
-) -> Any | NoteOut | None:
+) -> NoteOut | ProblemBody | None:
     """Update a note
 
     Args:
         note_id (str):
-        if_match (None | str | Unset): The ETag from your last read of this note.
+        if_match (None | str | Unset): The ETag from your last read of this note, or `*` to update
+            whatever the current version is. Weak ETags never match.
         body (UpdateNote):
 
     Raises:
@@ -202,7 +233,7 @@ async def asyncio(
         httpx2.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Any | NoteOut
+        NoteOut | ProblemBody
     """
 
     return (

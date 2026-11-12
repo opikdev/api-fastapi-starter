@@ -94,8 +94,8 @@ async def current_user(
 Authenticated = Annotated[CurrentUser, Depends(current_user)]
 
 
-async def auth_rate_limit(request: Request, response: Response, session: DbSession) -> None:
+async def auth_rate_limit(request: Request, session: DbSession) -> None:
     settings = request.app.state.settings
-    ip = ratelimit.client_ip(request, settings.trust_proxy_hops)
-    headers = await ratelimit.hit(session, f"auth:{ip}", settings.auth_rate_limit_per_minute)
-    response.headers.update(headers)
+    client = ratelimit.client_key(request, settings.trust_proxy_hops)
+    policy = ratelimit.Policy("auth", settings.auth_rate_limit_per_minute, 60)
+    await ratelimit.enforce(session, request.scope, f"auth:{client}", policy)

@@ -24,6 +24,13 @@ SECURITY_HEADERS = {
     "Referrer-Policy": "no-referrer",
     "Cross-Origin-Resource-Policy": "same-origin",
 }
+API_CSP = "default-src 'none'; frame-ancestors 'none'"
+DOCS_CSP = (
+    "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
+    "connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+)
+DOCS_PATH = "/docs"
+HEALTH_PATHS = {"/healthz", "/readyz"}
 
 # Response headers a browser script may read. Browsers hide every other non-basic header.
 EXPOSED_HEADERS = ", ".join(
@@ -32,9 +39,8 @@ EXPOSED_HEADERS = ", ".join(
         "Location",
         "X-Request-Id",
         "Retry-After",
-        "RateLimit-Limit",
-        "RateLimit-Remaining",
-        "RateLimit-Reset",
+        "RateLimit",
+        "RateLimit-Policy",
         "Idempotency-Replayed",
     ]
 )
@@ -74,6 +80,9 @@ class RequestContext:
                 headers["X-Request-Id"] = rid
                 for name, value in SECURITY_HEADERS.items():
                     headers[name] = value
+                headers["Content-Security-Policy"] = (
+                    DOCS_CSP if _is_docs(scope["path"]) else API_CSP
+                )
             await send(message)
 
         try:
@@ -91,7 +100,8 @@ class RequestContext:
                 )
                 await _send_problem(scope, send_with_headers, problem)
         finally:
-            logger.info(
+            logger.log(
+                logging.DEBUG if scope["path"] in HEALTH_PATHS else logging.INFO,
                 "Request completed",
                 extra={
                     "requestId": rid,
@@ -196,7 +206,11 @@ class CrossOrigin:
 
 
 class GuardV1:
-    """On /v1: counts the global rate limit, caps the body at 100 KiB, and requires JSON bodies."""
+    """On /v1: counts the global rate limit, caps the body at 100 KiB, and requires JSON bodies.
+
+    It also stamps every /v1 response with `Cache-Control: no-store` and the RateLimit fields of
+    every limit counted during the request, including limits counted by routes.
+    """
 
     def __init__(
         self,
@@ -207,21 +221,31 @@ class GuardV1:
     ) -> None:
         self.app = app
         self.sessions = sessions
-        self.limit = limit
+        self.policy = ratelimit.Policy("global", limit, 60)
         self.proxy_hops = proxy_hops
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http" or not scope["path"].startswith("/v1/"):
             await self.app(scope, receive, send)
             return
+        counted = ratelimit.usages(scope)
+
+        async def send_with_headers(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                headers = MutableHeaders(scope=message)
+                headers["Cache-Control"] = "no-store"
+                for name, value in ratelimit.response_headers(counted).items():
+                    headers[name] = value
+            await send(message)
+
         headers = Headers(scope=scope)
         try:
             async with self.sessions() as session:
-                ip = ratelimit.client_ip(HTTPConnection(scope), self.proxy_hops)
-                limit_headers = await ratelimit.hit(session, f"global:{ip}", self.limit)
+                client = ratelimit.client_key(HTTPConnection(scope), self.proxy_hops)
+                await ratelimit.enforce(session, scope, f"global:{client}", self.policy)
             self._check_body(scope, headers)
         except ProblemError as problem:
-            await _send_problem(scope, send, problem)
+            await _send_problem(scope, send_with_headers, problem)
             return
 
         # Read the body up front, so a chunked body over the limit gets a 413 before the app runs.
@@ -233,7 +257,8 @@ class GuardV1:
             body += message.get("body", b"")
             more = message.get("more_body", False)
             if len(body) > MAX_BODY_BYTES:
-                await _send_problem(scope, send, ProblemError(Slug.PAYLOAD_TOO_LARGE, _too_large()))
+                too_large = ProblemError(Slug.PAYLOAD_TOO_LARGE, _too_large())
+                await _send_problem(scope, send_with_headers, too_large)
                 return
         replayed = False
 
@@ -244,14 +269,7 @@ class GuardV1:
                 return {"type": "http.request", "body": body, "more_body": False}
             return await receive()
 
-        async def send_with_limits(message: Message) -> None:
-            if message["type"] == "http.response.start":
-                response_headers = MutableHeaders(scope=message)
-                for name, value in limit_headers.items():
-                    response_headers.setdefault(name, value)
-            await send(message)
-
-        await self.app(scope, replay, send_with_limits)
+        await self.app(scope, replay, send_with_headers)
 
     @staticmethod
     def _check_body(scope: Scope, headers: Headers) -> None:
@@ -269,6 +287,10 @@ class GuardV1:
                 Slug.UNSUPPORTED_MEDIA_TYPE,
                 "Send the body as JSON, with the header Content-Type: application/json.",
             )
+
+
+def _is_docs(path: str) -> bool:
+    return path == DOCS_PATH or path.startswith(f"{DOCS_PATH}/")
 
 
 def _too_large() -> str:

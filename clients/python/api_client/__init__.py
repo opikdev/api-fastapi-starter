@@ -1,4 +1,4 @@
-"""A client library for accessing API FastAPI starter"""
+"""A client library for accessing api-fastapi-starter"""
 
 from .client import AuthenticatedClient, Client
 

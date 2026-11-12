@@ -59,6 +59,7 @@ def database(server_url: str) -> Iterator[Database]:
     owner_url = _with_database(server_url, name)
     with psycopg.connect(owner_url, autocommit=True) as owner:
         owner.execute((ROOT / "docker/postgres/init.sql").read_text())
+        owner.execute(f"ALTER ROLE api_app PASSWORD '{APP_PASSWORD}'")
 
     config = Config()
     config.set_main_option("script_location", str(ROOT / "src/app/migrations"))

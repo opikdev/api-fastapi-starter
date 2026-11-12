@@ -6,6 +6,7 @@ import httpx2
 from ... import errors
 from ...client import AuthenticatedClient, Client
 from ...models.health import Health
+from ...models.problem_body import ProblemBody
 from ...types import Response
 
 
@@ -21,11 +22,16 @@ def _get_kwargs() -> dict[str, Any]:
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx2.Response
-) -> Health | None:
+) -> Health | ProblemBody | None:
     if response.status_code == 200:
         response_200 = Health.from_dict(response.json())
 
         return response_200
+
+    if response.status_code == 500:
+        response_500 = ProblemBody.from_dict(response.json())
+
+        return response_500
 
     if client.raise_on_unexpected_status:
         raise errors.UnexpectedStatus(response.status_code, response.content)
@@ -35,7 +41,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx2.Response
-) -> Response[Health]:
+) -> Response[Health | ProblemBody]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -47,7 +53,7 @@ def _build_response(
 def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
-) -> Response[Health]:
+) -> Response[Health | ProblemBody]:
     """Check that the process is up
 
     Raises:
@@ -55,7 +61,7 @@ def sync_detailed(
         httpx2.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[Health]
+        Response[Health | ProblemBody]
     """
 
     kwargs = _get_kwargs()
@@ -70,7 +76,7 @@ def sync_detailed(
 def sync(
     *,
     client: AuthenticatedClient | Client,
-) -> Health | None:
+) -> Health | ProblemBody | None:
     """Check that the process is up
 
     Raises:
@@ -78,7 +84,7 @@ def sync(
         httpx2.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Health
+        Health | ProblemBody
     """
 
     return sync_detailed(
@@ -89,7 +95,7 @@ def sync(
 async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
-) -> Response[Health]:
+) -> Response[Health | ProblemBody]:
     """Check that the process is up
 
     Raises:
@@ -97,7 +103,7 @@ async def asyncio_detailed(
         httpx2.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[Health]
+        Response[Health | ProblemBody]
     """
 
     kwargs = _get_kwargs()
@@ -110,7 +116,7 @@ async def asyncio_detailed(
 async def asyncio(
     *,
     client: AuthenticatedClient | Client,
-) -> Health | None:
+) -> Health | ProblemBody | None:
     """Check that the process is up
 
     Raises:
@@ -118,7 +124,7 @@ async def asyncio(
         httpx2.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Health
+        Health | ProblemBody
     """
 
     return (

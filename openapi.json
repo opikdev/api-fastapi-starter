@@ -1,7 +1,7 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "API FastAPI starter",
+    "title": "api-fastapi-starter",
     "version": "0.3.0"
   },
   "paths": {
@@ -21,6 +21,26 @@
                   "$ref": "#/components/schemas/Health"
                 }
               }
+            },
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/XRequestId"
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/XRequestId"
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
             }
           }
         }
@@ -31,7 +51,7 @@
         "tags": [
           "health"
         ],
-        "summary": "Check that Postgres is reachable",
+        "summary": "Check that the API takes traffic and Postgres is reachable",
         "operationId": "getReadiness",
         "responses": {
           "200": {
@@ -42,13 +62,40 @@
                   "$ref": "#/components/schemas/Health"
                 }
               }
+            },
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/XRequestId"
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/XRequestId"
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
             }
           },
           "503": {
             "description": "Service unavailable",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/XRequestId"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
             "content": {
-              "application/problem+json": {},
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/ProblemBody"
                 }
@@ -84,40 +131,42 @@
                   "$ref": "#/components/schemas/UserOut"
                 }
               }
+            },
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/XRequestId"
+              },
+              "Cache-Control": {
+                "$ref": "#/components/headers/CacheControl"
+              },
+              "RateLimit": {
+                "$ref": "#/components/headers/RateLimit"
+              },
+              "RateLimit-Policy": {
+                "$ref": "#/components/headers/RateLimitPolicy"
+              }
             }
           },
           "400": {
-            "description": "Request validation failed",
-            "content": {
-              "application/problem+json": {},
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemBody"
-                }
-              }
-            }
+            "$ref": "#/components/responses/ValidationFailed"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           },
           "409": {
-            "description": "Email already registered",
-            "content": {
-              "application/problem+json": {},
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemBody"
-                }
-              }
-            }
+            "$ref": "#/components/responses/EmailTaken"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
           },
           "429": {
-            "description": "Too many requests",
-            "content": {
-              "application/problem+json": {},
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemBody"
-                }
-              }
-            }
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
           }
         }
       }
@@ -144,10 +193,19 @@
             "description": "Successful Response",
             "headers": {
               "Set-Cookie": {
-                "description": "Sent when `delivery` is `cookie`: `__Host-session=<token>; Path=/; Max-Age=<seconds>; HttpOnly; Secure; SameSite=Strict`.",
-                "schema": {
-                  "type": "string"
-                }
+                "$ref": "#/components/headers/SetCookie"
+              },
+              "X-Request-Id": {
+                "$ref": "#/components/headers/XRequestId"
+              },
+              "Cache-Control": {
+                "$ref": "#/components/headers/CacheControl"
+              },
+              "RateLimit": {
+                "$ref": "#/components/headers/RateLimit"
+              },
+              "RateLimit-Policy": {
+                "$ref": "#/components/headers/RateLimitPolicy"
               }
             },
             "content": {
@@ -159,37 +217,25 @@
             }
           },
           "400": {
-            "description": "Request validation failed",
-            "content": {
-              "application/problem+json": {},
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemBody"
-                }
-              }
-            }
+            "$ref": "#/components/responses/ValidationFailed"
           },
           "401": {
-            "description": "Invalid credentials",
-            "content": {
-              "application/problem+json": {},
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemBody"
-                }
-              }
-            }
+            "$ref": "#/components/responses/InvalidCredentials"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
           },
           "429": {
-            "description": "Too many requests",
-            "content": {
-              "application/problem+json": {},
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemBody"
-                }
-              }
-            }
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
           }
         }
       }
@@ -203,18 +249,33 @@
         "operationId": "deleteCurrentSession",
         "responses": {
           "204": {
-            "description": "Successful Response"
-          },
-          "401": {
-            "description": "Authentication required",
-            "content": {
-              "application/problem+json": {},
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemBody"
-                }
+            "description": "Successful Response",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/XRequestId"
+              },
+              "Cache-Control": {
+                "$ref": "#/components/headers/CacheControl"
+              },
+              "RateLimit": {
+                "$ref": "#/components/headers/RateLimit"
+              },
+              "RateLimit-Policy": {
+                "$ref": "#/components/headers/RateLimitPolicy"
               }
             }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
           }
         },
         "security": [
@@ -243,18 +304,30 @@
                   "$ref": "#/components/schemas/UserOut"
                 }
               }
+            },
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/XRequestId"
+              },
+              "Cache-Control": {
+                "$ref": "#/components/headers/CacheControl"
+              },
+              "RateLimit": {
+                "$ref": "#/components/headers/RateLimit"
+              },
+              "RateLimit-Policy": {
+                "$ref": "#/components/headers/RateLimitPolicy"
+              }
             }
           },
           "401": {
-            "description": "Authentication required",
-            "content": {
-              "application/problem+json": {},
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemBody"
-                }
-              }
-            }
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
           }
         },
         "security": [
@@ -323,40 +396,54 @@
                   "$ref": "#/components/schemas/NoteOut"
                 }
               }
+            },
+            "headers": {
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
+              },
+              "Location": {
+                "$ref": "#/components/headers/Location"
+              },
+              "Idempotency-Replayed": {
+                "$ref": "#/components/headers/IdempotencyReplayed"
+              },
+              "X-Request-Id": {
+                "$ref": "#/components/headers/XRequestId"
+              },
+              "Cache-Control": {
+                "$ref": "#/components/headers/CacheControl"
+              },
+              "RateLimit": {
+                "$ref": "#/components/headers/RateLimit"
+              },
+              "RateLimit-Policy": {
+                "$ref": "#/components/headers/RateLimitPolicy"
+              }
             }
           },
           "400": {
-            "description": "Request validation failed",
-            "content": {
-              "application/problem+json": {},
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemBody"
-                }
-              }
-            }
+            "$ref": "#/components/responses/ValidationFailed"
           },
           "401": {
-            "description": "Authentication required",
-            "content": {
-              "application/problem+json": {},
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemBody"
-                }
-              }
-            }
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "422": {
+            "$ref": "#/components/responses/IdempotencyKeyReused"
           },
           "429": {
-            "description": "Too many requests",
-            "content": {
-              "application/problem+json": {},
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemBody"
-                }
-              }
-            }
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
           }
         }
       },
@@ -416,40 +503,33 @@
                   "$ref": "#/components/schemas/NoteList"
                 }
               }
+            },
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/XRequestId"
+              },
+              "Cache-Control": {
+                "$ref": "#/components/headers/CacheControl"
+              },
+              "RateLimit": {
+                "$ref": "#/components/headers/RateLimit"
+              },
+              "RateLimit-Policy": {
+                "$ref": "#/components/headers/RateLimitPolicy"
+              }
             }
           },
           "400": {
-            "description": "Request validation failed",
-            "content": {
-              "application/problem+json": {},
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemBody"
-                }
-              }
-            }
+            "$ref": "#/components/responses/ValidationFailed"
           },
           "401": {
-            "description": "Authentication required",
-            "content": {
-              "application/problem+json": {},
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemBody"
-                }
-              }
-            }
+            "$ref": "#/components/responses/Unauthorized"
           },
           "429": {
-            "description": "Too many requests",
-            "content": {
-              "application/problem+json": {},
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemBody"
-                }
-              }
-            }
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
           }
         }
       }
@@ -489,40 +569,36 @@
                   "$ref": "#/components/schemas/NoteOut"
                 }
               }
+            },
+            "headers": {
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
+              },
+              "X-Request-Id": {
+                "$ref": "#/components/headers/XRequestId"
+              },
+              "Cache-Control": {
+                "$ref": "#/components/headers/CacheControl"
+              },
+              "RateLimit": {
+                "$ref": "#/components/headers/RateLimit"
+              },
+              "RateLimit-Policy": {
+                "$ref": "#/components/headers/RateLimitPolicy"
+              }
             }
           },
           "401": {
-            "description": "Authentication required",
-            "content": {
-              "application/problem+json": {},
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemBody"
-                }
-              }
-            }
+            "$ref": "#/components/responses/Unauthorized"
           },
           "404": {
-            "description": "Resource not found",
-            "content": {
-              "application/problem+json": {},
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemBody"
-                }
-              }
-            }
+            "$ref": "#/components/responses/NotFound"
           },
           "429": {
-            "description": "Too many requests",
-            "content": {
-              "application/problem+json": {},
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemBody"
-                }
-              }
-            }
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
           }
         }
       },
@@ -563,10 +639,10 @@
                   "type": "null"
                 }
               ],
-              "description": "The ETag from your last read of this note.",
+              "description": "The ETag from your last read of this note, or `*` to update whatever the current version is. Weak ETags never match.",
               "title": "If-Match"
             },
-            "description": "The ETag from your last read of this note."
+            "description": "The ETag from your last read of this note, or `*` to update whatever the current version is. Weak ETags never match."
           }
         ],
         "requestBody": {
@@ -588,73 +664,54 @@
                   "$ref": "#/components/schemas/NoteOut"
                 }
               }
+            },
+            "headers": {
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
+              },
+              "X-Request-Id": {
+                "$ref": "#/components/headers/XRequestId"
+              },
+              "Cache-Control": {
+                "$ref": "#/components/headers/CacheControl"
+              },
+              "RateLimit": {
+                "$ref": "#/components/headers/RateLimit"
+              },
+              "RateLimit-Policy": {
+                "$ref": "#/components/headers/RateLimitPolicy"
+              }
             }
           },
           "400": {
-            "description": "Request validation failed",
-            "content": {
-              "application/problem+json": {},
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemBody"
-                }
-              }
-            }
+            "$ref": "#/components/responses/ValidationFailed"
           },
           "401": {
-            "description": "Authentication required",
-            "content": {
-              "application/problem+json": {},
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemBody"
-                }
-              }
-            }
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           },
           "404": {
-            "description": "Resource not found",
-            "content": {
-              "application/problem+json": {},
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemBody"
-                }
-              }
-            }
+            "$ref": "#/components/responses/NotFound"
           },
           "412": {
-            "description": "Resource version mismatch",
-            "content": {
-              "application/problem+json": {},
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemBody"
-                }
-              }
-            }
+            "$ref": "#/components/responses/VersionMismatch"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
           },
           "428": {
-            "description": "Precondition required",
-            "content": {
-              "application/problem+json": {},
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemBody"
-                }
-              }
-            }
+            "$ref": "#/components/responses/PreconditionRequired"
           },
           "429": {
-            "description": "Too many requests",
-            "content": {
-              "application/problem+json": {},
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemBody"
-                }
-              }
-            }
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
           }
         }
       },
@@ -685,40 +742,36 @@
         ],
         "responses": {
           "204": {
-            "description": "Successful Response"
+            "description": "Successful Response",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/XRequestId"
+              },
+              "Cache-Control": {
+                "$ref": "#/components/headers/CacheControl"
+              },
+              "RateLimit": {
+                "$ref": "#/components/headers/RateLimit"
+              },
+              "RateLimit-Policy": {
+                "$ref": "#/components/headers/RateLimitPolicy"
+              }
+            }
           },
           "401": {
-            "description": "Authentication required",
-            "content": {
-              "application/problem+json": {},
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemBody"
-                }
-              }
-            }
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           },
           "404": {
-            "description": "Resource not found",
-            "content": {
-              "application/problem+json": {},
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemBody"
-                }
-              }
-            }
+            "$ref": "#/components/responses/NotFound"
           },
           "429": {
-            "description": "Too many requests",
-            "content": {
-              "application/problem+json": {},
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemBody"
-                }
-              }
-            }
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
           }
         }
       }
@@ -761,8 +814,7 @@
           },
           "password": {
             "type": "string",
-            "maxLength": 128,
-            "minLength": 12,
+            "minLength": 1,
             "title": "Password",
             "examples": [
               "correct-horse-battery"
@@ -1081,6 +1133,381 @@
         "description": "The cookie POST /v1/sessions sets when `delivery` is `cookie`.",
         "in": "cookie",
         "name": "__Host-session"
+      }
+    },
+    "responses": {
+      "ValidationFailed": {
+        "description": "Request validation failed",
+        "headers": {
+          "X-Request-Id": {
+            "$ref": "#/components/headers/XRequestId"
+          },
+          "Cache-Control": {
+            "$ref": "#/components/headers/CacheControl"
+          },
+          "RateLimit": {
+            "$ref": "#/components/headers/RateLimit"
+          },
+          "RateLimit-Policy": {
+            "$ref": "#/components/headers/RateLimitPolicy"
+          }
+        },
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/ProblemBody"
+            }
+          }
+        }
+      },
+      "InvalidCredentials": {
+        "description": "Invalid credentials",
+        "headers": {
+          "X-Request-Id": {
+            "$ref": "#/components/headers/XRequestId"
+          },
+          "Cache-Control": {
+            "$ref": "#/components/headers/CacheControl"
+          },
+          "RateLimit": {
+            "$ref": "#/components/headers/RateLimit"
+          },
+          "RateLimit-Policy": {
+            "$ref": "#/components/headers/RateLimitPolicy"
+          }
+        },
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/ProblemBody"
+            }
+          }
+        }
+      },
+      "Unauthorized": {
+        "description": "Authentication required",
+        "headers": {
+          "X-Request-Id": {
+            "$ref": "#/components/headers/XRequestId"
+          },
+          "Cache-Control": {
+            "$ref": "#/components/headers/CacheControl"
+          },
+          "RateLimit": {
+            "$ref": "#/components/headers/RateLimit"
+          },
+          "RateLimit-Policy": {
+            "$ref": "#/components/headers/RateLimitPolicy"
+          }
+        },
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/ProblemBody"
+            }
+          }
+        }
+      },
+      "Forbidden": {
+        "description": "Forbidden",
+        "headers": {
+          "X-Request-Id": {
+            "$ref": "#/components/headers/XRequestId"
+          },
+          "Cache-Control": {
+            "$ref": "#/components/headers/CacheControl"
+          },
+          "RateLimit": {
+            "$ref": "#/components/headers/RateLimit"
+          },
+          "RateLimit-Policy": {
+            "$ref": "#/components/headers/RateLimitPolicy"
+          }
+        },
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/ProblemBody"
+            }
+          }
+        }
+      },
+      "NotFound": {
+        "description": "Resource not found",
+        "headers": {
+          "X-Request-Id": {
+            "$ref": "#/components/headers/XRequestId"
+          },
+          "Cache-Control": {
+            "$ref": "#/components/headers/CacheControl"
+          },
+          "RateLimit": {
+            "$ref": "#/components/headers/RateLimit"
+          },
+          "RateLimit-Policy": {
+            "$ref": "#/components/headers/RateLimitPolicy"
+          }
+        },
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/ProblemBody"
+            }
+          }
+        }
+      },
+      "EmailTaken": {
+        "description": "Email already registered",
+        "headers": {
+          "X-Request-Id": {
+            "$ref": "#/components/headers/XRequestId"
+          },
+          "Cache-Control": {
+            "$ref": "#/components/headers/CacheControl"
+          },
+          "RateLimit": {
+            "$ref": "#/components/headers/RateLimit"
+          },
+          "RateLimit-Policy": {
+            "$ref": "#/components/headers/RateLimitPolicy"
+          }
+        },
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/ProblemBody"
+            }
+          }
+        }
+      },
+      "VersionMismatch": {
+        "description": "Resource version mismatch",
+        "headers": {
+          "X-Request-Id": {
+            "$ref": "#/components/headers/XRequestId"
+          },
+          "Cache-Control": {
+            "$ref": "#/components/headers/CacheControl"
+          },
+          "RateLimit": {
+            "$ref": "#/components/headers/RateLimit"
+          },
+          "RateLimit-Policy": {
+            "$ref": "#/components/headers/RateLimitPolicy"
+          }
+        },
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/ProblemBody"
+            }
+          }
+        }
+      },
+      "PayloadTooLarge": {
+        "description": "Payload too large",
+        "headers": {
+          "X-Request-Id": {
+            "$ref": "#/components/headers/XRequestId"
+          },
+          "Cache-Control": {
+            "$ref": "#/components/headers/CacheControl"
+          },
+          "RateLimit": {
+            "$ref": "#/components/headers/RateLimit"
+          },
+          "RateLimit-Policy": {
+            "$ref": "#/components/headers/RateLimitPolicy"
+          }
+        },
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/ProblemBody"
+            }
+          }
+        }
+      },
+      "UnsupportedMediaType": {
+        "description": "Unsupported media type",
+        "headers": {
+          "X-Request-Id": {
+            "$ref": "#/components/headers/XRequestId"
+          },
+          "Cache-Control": {
+            "$ref": "#/components/headers/CacheControl"
+          },
+          "RateLimit": {
+            "$ref": "#/components/headers/RateLimit"
+          },
+          "RateLimit-Policy": {
+            "$ref": "#/components/headers/RateLimitPolicy"
+          }
+        },
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/ProblemBody"
+            }
+          }
+        }
+      },
+      "IdempotencyKeyReused": {
+        "description": "Idempotency key reused",
+        "headers": {
+          "X-Request-Id": {
+            "$ref": "#/components/headers/XRequestId"
+          },
+          "Cache-Control": {
+            "$ref": "#/components/headers/CacheControl"
+          },
+          "RateLimit": {
+            "$ref": "#/components/headers/RateLimit"
+          },
+          "RateLimit-Policy": {
+            "$ref": "#/components/headers/RateLimitPolicy"
+          }
+        },
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/ProblemBody"
+            }
+          }
+        }
+      },
+      "PreconditionRequired": {
+        "description": "Precondition required",
+        "headers": {
+          "X-Request-Id": {
+            "$ref": "#/components/headers/XRequestId"
+          },
+          "Cache-Control": {
+            "$ref": "#/components/headers/CacheControl"
+          },
+          "RateLimit": {
+            "$ref": "#/components/headers/RateLimit"
+          },
+          "RateLimit-Policy": {
+            "$ref": "#/components/headers/RateLimitPolicy"
+          }
+        },
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/ProblemBody"
+            }
+          }
+        }
+      },
+      "RateLimited": {
+        "description": "Too many requests",
+        "headers": {
+          "X-Request-Id": {
+            "$ref": "#/components/headers/XRequestId"
+          },
+          "Cache-Control": {
+            "$ref": "#/components/headers/CacheControl"
+          },
+          "RateLimit": {
+            "$ref": "#/components/headers/RateLimit"
+          },
+          "RateLimit-Policy": {
+            "$ref": "#/components/headers/RateLimitPolicy"
+          },
+          "Retry-After": {
+            "$ref": "#/components/headers/RetryAfter"
+          }
+        },
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/ProblemBody"
+            }
+          }
+        }
+      },
+      "InternalError": {
+        "description": "Internal server error",
+        "headers": {
+          "X-Request-Id": {
+            "$ref": "#/components/headers/XRequestId"
+          },
+          "Cache-Control": {
+            "$ref": "#/components/headers/CacheControl"
+          },
+          "RateLimit": {
+            "$ref": "#/components/headers/RateLimit"
+          },
+          "RateLimit-Policy": {
+            "$ref": "#/components/headers/RateLimitPolicy"
+          }
+        },
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/ProblemBody"
+            }
+          }
+        }
+      }
+    },
+    "headers": {
+      "XRequestId": {
+        "description": "The request's ID. Quote it when you report a problem.",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "CacheControl": {
+        "description": "Always `no-store` on /v1, so no cache keeps a response.",
+        "schema": {
+          "type": "string",
+          "const": "no-store"
+        }
+      },
+      "RateLimitPolicy": {
+        "description": "The rate limits counted for this request, such as `\"global\";q=300;w=60`: the quota `q` per window `w` in seconds. See draft-ietf-httpapi-ratelimit-headers.",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "RateLimit": {
+        "description": "What is left of each limit, such as `\"global\";r=238;t=25`: `r` requests remain, and the window resets in `t` seconds. On a 429, only the limit that was exceeded.",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "RetryAfter": {
+        "description": "Seconds to wait before retrying.",
+        "schema": {
+          "type": "integer"
+        }
+      },
+      "ETag": {
+        "description": "The note's version, such as `\"3\"`. Send it back in `If-Match`.",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "Location": {
+        "description": "The path of the created resource.",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "IdempotencyReplayed": {
+        "description": "`true` when the response replays an earlier request with this key.",
+        "schema": {
+          "type": "string",
+          "const": "true"
+        }
+      },
+      "SetCookie": {
+        "description": "Sent when `delivery` is `cookie`: `__Host-session=<token>; Path=/; Max-Age=<seconds>; HttpOnly; Secure; SameSite=Strict`.",
+        "schema": {
+          "type": "string"
+        }
       }
     }
   }

@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 
 import psycopg
 import pytest
@@ -190,7 +191,7 @@ async def test_updating_requires_if_match(database: Database) -> None:
     assert_problem(response, 428, "precondition-required")
 
 
-@pytest.mark.parametrize("if_match", ['"9"', "nonsense", "*", '"99999999999999999999"'])
+@pytest.mark.parametrize("if_match", ['"9"', "nonsense", '"99999999999999999999"', '"1" x'])
 async def test_updating_rejects_a_stale_or_bad_if_match(database: Database, if_match: str) -> None:
     async with api(database) as client:
         user = await client.sign_up()
@@ -219,7 +220,7 @@ async def test_updating_lets_only_one_of_two_concurrent_updates_win(database: Da
     assert sorted(response.status_code for response in responses) == [200, 412]
 
 
-@pytest.mark.parametrize(("body", "field"), [({}, "body"), ({"title": "   "}, "title")])
+@pytest.mark.parametrize(("body", "field"), [({}, ""), ({"title": "   "}, "title")])
 async def test_updating_rejects_an_empty_patch_and_a_blank_title(
     database: Database, body: dict[str, str], field: str
 ) -> None:
@@ -345,3 +346,88 @@ async def test_idempotency_never_replays_another_endpoints_response(
     assert created.json()["id"].startswith("note_")
     assert "idempotency-replayed" not in created.headers
     assert retried.json()["id"] == created.json()["id"]
+
+
+@pytest.mark.parametrize("if_match", ["*", ' "1" ', '"7", "1"'])
+async def test_updating_accepts_any_matching_strong_etag_or_a_star(
+    database: Database, if_match: str
+) -> None:
+    async with api(database) as client:
+        user = await client.sign_up()
+        note = await user.create_note()
+        response = await user.request(
+            "PATCH", f"/v1/notes/{note['id']}", json={"title": "x"}, headers={"If-Match": if_match}
+        )
+    assert response.status_code == 200, response.text
+    assert response.headers["etag"] == '"2"'
+
+
+async def test_updating_with_a_star_still_hides_another_users_note(database: Database) -> None:
+    async with api(database) as client:
+        owner, other = await client.sign_up(), await client.sign_up()
+        note = await owner.create_note()
+        response = await other.request(
+            "PATCH", f"/v1/notes/{note['id']}", json={"title": "x"}, headers={"If-Match": "*"}
+        )
+    assert_problem(response, 404, "not-found")
+
+
+@pytest.mark.parametrize("if_match", ['W/"1"', 'W/"1", W/"2"'])
+async def test_updating_never_matches_a_weak_etag_and_says_why(
+    database: Database, if_match: str
+) -> None:
+    async with api(database) as client:
+        user = await client.sign_up()
+        note = await user.create_note()
+        response = await user.request(
+            "PATCH", f"/v1/notes/{note['id']}", json={"title": "x"}, headers={"If-Match": if_match}
+        )
+    body = assert_problem(response, 412, "version-mismatch")
+    assert body["detail"] == (
+        f"If-Match {if_match} has only weak ETags, which never match. Send the strong ETag "
+        'from your last read, such as "3".'
+    )
+
+
+async def test_idempotency_fingerprints_the_whole_body_in_any_key_order(database: Database) -> None:
+    async with api(database) as client:
+        user = await client.sign_up()
+        headers = {"Idempotency-Key": "fingerprint", "Content-Type": "application/json"}
+        first = await user.request(
+            "POST", "/v1/notes", content=b'{"title": "T", "body": "B"}', headers=headers
+        )
+        reordered = await user.request(
+            "POST", "/v1/notes", content=b'{"body":"B","title":"T"}', headers=headers
+        )
+        changed_body = await user.request(
+            "POST", "/v1/notes", content=b'{"title": "T", "body": "C"}', headers=headers
+        )
+    assert first.status_code == 201
+    assert reordered.headers["idempotency-replayed"] == "true"
+    assert reordered.json()["id"] == first.json()["id"]
+    assert_problem(changed_body, 422, "idempotency-key-reused")
+
+
+async def test_idempotency_stores_a_fingerprint_of_method_path_and_canonical_body(
+    database: Database, owner: psycopg.AsyncConnection
+) -> None:
+    async with api(database) as client:
+        user = await client.sign_up()
+        await user.request(
+            "POST", "/v1/notes", json={"title": "T"}, headers={"Idempotency-Key": "stored"}
+        )
+    row = await (
+        await owner.execute("select request_hash from idempotency_keys where key = 'stored'")
+    ).fetchone()
+    expected = hashlib.sha256(b'POST /v1/notes\n{"body":"","title":"T"}').hexdigest()
+    assert row == (expected,)
+
+
+async def test_creating_reports_a_body_that_is_not_an_object_with_an_empty_field(
+    database: Database,
+) -> None:
+    async with api(database) as client:
+        user = await client.sign_up()
+        response = await user.request("POST", "/v1/notes", json=["not", "an", "object"])
+    assert_problem(response, 400, "validation-failed")
+    assert_field_error(response, "")

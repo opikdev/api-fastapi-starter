@@ -15,6 +15,7 @@ class Slug(StrEnum):
     NOT_FOUND = "not-found"
     METHOD_NOT_ALLOWED = "method-not-allowed"
     EMAIL_TAKEN = "email-taken"
+    CONFLICT = "conflict"
     VERSION_MISMATCH = "version-mismatch"
     PAYLOAD_TOO_LARGE = "payload-too-large"
     UNSUPPORTED_MEDIA_TYPE = "unsupported-media-type"
@@ -33,6 +34,7 @@ CATALOG: dict[Slug, tuple[int, str]] = {
     Slug.NOT_FOUND: (404, "Resource not found"),
     Slug.METHOD_NOT_ALLOWED: (405, "Method not allowed"),
     Slug.EMAIL_TAKEN: (409, "Email already registered"),
+    Slug.CONFLICT: (409, "Conflict"),
     Slug.VERSION_MISMATCH: (412, "Resource version mismatch"),
     Slug.PAYLOAD_TOO_LARGE: (413, "Payload too large"),
     Slug.UNSUPPORTED_MEDIA_TYPE: (415, "Unsupported media type"),
@@ -42,6 +44,8 @@ CATALOG: dict[Slug, tuple[int, str]] = {
     Slug.INTERNAL_ERROR: (500, "Internal server error"),
     Slug.SERVICE_UNAVAILABLE: (503, "Service unavailable"),
 }
+
+PROBLEM_EXTENSION = "x-problem"
 
 INVALID_FIELDS = (
     "The request has invalid fields. See `errors` for each one, then fix them and retry."
@@ -96,12 +100,13 @@ def invalid(field_name: str, detail: str) -> ProblemError:
 
 
 def responses(*slugs: Slug) -> dict[int | str, dict[str, object]]:
-    """Documents problem responses in OpenAPI, so generated clients type them."""
+    """Documents a route's own problem responses. `app.openapi` adds the ones middleware returns."""
     return {
         CATALOG[slug][0]: {
             "model": ProblemBody,
             "description": CATALOG[slug][1],
             "content": {"application/problem+json": {}},
+            PROBLEM_EXTENSION: slug.value,
         }
         for slug in slugs
     }

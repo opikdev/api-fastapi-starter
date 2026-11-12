@@ -2,7 +2,8 @@
 
 from typing import Literal
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
+from opentelemetry.instrumentation.utils import suppress_instrumentation
 from sqlalchemy import text
 
 from app.dependencies import DbSession
@@ -24,12 +25,19 @@ async def liveness() -> Health:
 @router.get(
     "/readyz",
     operation_id="getReadiness",
-    summary="Check that Postgres is reachable",
+    summary="Check that the API takes traffic and Postgres is reachable",
     responses=responses(Slug.SERVICE_UNAVAILABLE),
 )
-async def readiness(session: DbSession) -> Health:
+async def readiness(request: Request, session: DbSession) -> Health:
+    if request.app.state.draining:
+        raise ProblemError(
+            Slug.SERVICE_UNAVAILABLE,
+            "The API is shutting down. Send traffic to another instance.",
+        )
     try:
-        await session.execute(text("SELECT 1"))
+        # Probes run every few seconds, so their query would flood traces.
+        with suppress_instrumentation():
+            await session.execute(text("SELECT 1"))
     except Exception as error:
         raise ProblemError(
             Slug.SERVICE_UNAVAILABLE,

@@ -1,3 +1,4 @@
+import asyncio
 import secrets
 import threading
 from datetime import UTC, datetime
@@ -337,3 +338,93 @@ async def test_hashing_and_verifying_passwords_run_off_the_event_loop(
         await client.sign_up()
     assert len(threads) == 2
     assert threading.get_ident() not in threads
+
+
+async def login(client: Api, address: str, password: str) -> httpx2.Response:
+    return await client.http.post("/v1/sessions", json={"email": address, "password": password})
+
+
+async def test_login_locks_an_account_after_too_many_failures_even_for_the_right_password(
+    database: Database,
+) -> None:
+    async with api(database, LOGIN_FAILURE_LIMIT="2") as client:
+        user = await client.sign_up()
+        failures = [await login(client, user.email, "wrong-horse-battery") for _ in range(2)]
+        blocked = await login(client, f"  {user.email.upper()} ", PASSWORD)
+    assert [response.status_code for response in failures] == [401, 401]
+    assert all('"login"' not in response.headers["ratelimit-policy"] for response in failures)
+    body = assert_problem(blocked, 429, "rate-limited")
+    assert body["detail"].startswith("Too many failed logins for this account. Retry in ")
+    assert blocked.headers["ratelimit-policy"].endswith(', "login";q=2;w=900')
+    remaining, _, reset = blocked.headers["ratelimit"].removeprefix('"login";r=').partition(";t=")
+    assert remaining == "0"
+    assert 1 <= int(reset) <= 900
+    assert blocked.headers["retry-after"] == reset
+
+
+async def test_login_limits_an_unknown_email_the_same_way(database: Database) -> None:
+    address = email()
+    async with api(database, LOGIN_FAILURE_LIMIT="1") as client:
+        first = await login(client, address, PASSWORD)
+        second = await login(client, address, PASSWORD)
+        other = await login(client, email(), PASSWORD)
+    assert_problem(first, 401, "invalid-credentials")
+    assert_problem(second, 429, "rate-limited")
+    assert_problem(other, 401, "invalid-credentials")
+
+
+async def test_login_counts_only_failures_and_successes_never_reset_them(
+    database: Database,
+) -> None:
+    async with api(database, LOGIN_FAILURE_LIMIT="2") as client:
+        user = await client.sign_up()
+        statuses = [
+            (await login(client, user.email, password)).status_code
+            for password in (
+                PASSWORD,
+                PASSWORD,
+                PASSWORD,
+                "wrong-horse-battery",
+                PASSWORD,
+                "wrong-horse-battery",
+                PASSWORD,
+            )
+        ]
+    assert statuses == [201, 201, 201, 401, 201, 401, 429]
+
+
+async def test_login_checks_the_failure_limit_atomically(database: Database) -> None:
+    async with api(database, LOGIN_FAILURE_LIMIT="3") as client:
+        user = await client.sign_up()
+        responses = await asyncio.gather(
+            *(login(client, user.email, "wrong-horse-battery") for _ in range(8))
+        )
+    statuses = sorted(response.status_code for response in responses)
+    assert statuses == [401, 401, 401, 429, 429, 429, 429, 429]
+
+
+async def test_login_accepts_a_password_shorter_than_the_registration_minimum(
+    database: Database, owner: psycopg.AsyncConnection
+) -> None:
+    address = email()
+    await owner.execute(
+        "insert into users (email, password_hash) values (%s, %s)",
+        [address, security.hash_password("old-short")],
+    )
+    async with api(database) as client:
+        response = await login(client, address, "old-short")
+        empty = await login(client, address, "")
+    assert response.status_code == 201, response.text
+    assert_problem(empty, 400, "validation-failed")
+
+
+async def test_accepts_the_bearer_scheme_in_any_case(database: Database) -> None:
+    async with api(database) as client:
+        user = await client.sign_up()
+        responses = [
+            await client.http.get(
+                "/v1/users/me", headers={"Authorization": f"{scheme} {user.token}"}
+            )
+            for scheme in ("bearer", "BEARER", "Bearer")
+        ]
+    assert [response.status_code for response in responses] == [200, 200, 200]

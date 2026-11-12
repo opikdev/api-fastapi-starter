@@ -29,12 +29,24 @@ replace:
   - from: "@opikdev"
     to: "@{{owner}}"
     files: [.github/CODEOWNERS]
+  - from: "# API FastAPI starter\n"
+    to: "# {{name}}\n"
+    files: [README.md]
+  # A new project starts at 0.1.0. Update these with each release; tests/unit/test_pik.py checks.
+  - from: "name = \"api-fastapi-starter\"\nversion = \"0.3.0\"\n"
+    to: "name = \"api-fastapi-starter\"\nversion = \"0.1.0\"\n"
+    files: [pyproject.toml, uv.lock]
+  - from: "\"title\": \"api-fastapi-starter\",\n    \"version\": \"0.3.0\"\n"
+    to: "\"title\": \"api-fastapi-starter\",\n    \"version\": \"0.1.0\"\n"
+    files: [openapi.json]
   # These files hold the bare name only, so one rule renames each of them once.
   - from: api-fastapi-starter
     to: "{{name}}"
     files:
       - .devcontainer/devcontainer.json
       - Dockerfile
+      - clients/python/api_client/__init__.py
+      - openapi.json
       - Makefile
       - compose.yaml
       - pyproject.toml
@@ -44,10 +56,15 @@ replace:
       - src/app/main.py
       - src/app/telemetry.py
       - tests/e2e/test_stack.py
+      - tests/integration/test_cli.py
+      - tests/integration/test_http.py
 exclude:
   - .baseline.sha256
   - .github/workflows/baseline-check.yml
+  # It checks this file, which pik removes from the project.
+  - tests/unit/test_pik.py
 setup:
+  - printf '# Changelog\n\nAll notable changes to this project are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).\n\n## [Unreleased]\n' > CHANGELOG.md
   - uv sync
   - uv run ruff format --quiet .
 next:

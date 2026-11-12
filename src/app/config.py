@@ -1,9 +1,9 @@
 """Settings from environment variables, validated once at startup."""
 
 import os
-from typing import Literal
+from typing import Literal, Self
 
-from pydantic import Field, PostgresDsn, ValidationError
+from pydantic import Field, PostgresDsn, ValidationError, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 LogLevel = Literal["debug", "info", "warn", "warning", "error"]
@@ -26,6 +26,21 @@ class Settings(BaseSettings):
     session_ttl_hours: int = Field(default=168, ge=1, le=9600)
     rate_limit_per_minute: int = Field(default=300, ge=1)
     auth_rate_limit_per_minute: int = Field(default=10, ge=1)
+    login_failure_limit: int = Field(default=5, ge=1)
+    login_failure_window_seconds: int = Field(default=900, ge=1)
+    shutdown_drain_seconds: int = Field(default=5, ge=0)
+    shutdown_timeout_seconds: int = Field(default=30, ge=1)
+    keep_alive_timeout_seconds: int = Field(default=75, ge=1)
+    docs_enabled: bool = False
+
+    @model_validator(mode="after")
+    def _outlast_the_slowest_query(self) -> Self:
+        if self.shutdown_timeout_seconds * 1000 < self.database_statement_timeout_ms:
+            raise ValueError(
+                "SHUTDOWN_TIMEOUT_SECONDS must be at least DATABASE_STATEMENT_TIMEOUT_MS, "
+                "so in-flight requests can finish"
+            )
+        return self
 
     @property
     def origins(self) -> list[str]:
@@ -71,7 +86,11 @@ def _load[T: BaseSettings](model: type[T], env: dict[str, str] | None) -> T:
         return model.model_validate({key.lower(): value for key, value in env.items() if value})
     except ValidationError as error:
         fields = [
-            f"{'.'.join(str(part) for part in issue['loc']).upper()}: {issue['msg']}"
+            ": ".join(
+                part
+                for part in (".".join(str(loc) for loc in issue["loc"]).upper(), issue["msg"])
+                if part
+            )
             for issue in error.errors(include_input=False, include_url=False)
         ]
         raise ConfigError(f"Invalid environment: {'; '.join(fields)}") from None
