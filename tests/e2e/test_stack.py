@@ -22,22 +22,29 @@ from api_client.models import (
     Credentials,
     UpdateNote,
 )
+from playwright.sync_api import sync_playwright
 
 ROOT = Path(__file__).parents[2]
-PROJECT = "api-fastapi-starter-e2e"
-PORT, DB_PORT, OTLP_PORT = "3160", "5560", "4340"
+# Override these to run next to another stack that holds the defaults.
+PROJECT = os.environ.get("E2E_PROJECT", "api-fastapi-starter-e2e")
+PORT = os.environ.get("E2E_PORT", "3160")
+DB_PORT = os.environ.get("E2E_DB_PORT", "5560")
+OTLP_PORT = os.environ.get("E2E_OTLP_PORT", "4340")
 BASE = f"http://127.0.0.1:{PORT}"
 
 
 class Collector(BaseHTTPRequestHandler):
     traces = bytearray()
+    metrics = bytearray()
     lock = threading.Lock()
 
     def do_POST(self) -> None:
         body = self.rfile.read(int(self.headers.get("content-length", 0)))
-        if self.path == "/v1/traces":
-            with self.lock:
+        with self.lock:
+            if self.path == "/v1/traces":
                 Collector.traces += body
+            elif self.path == "/v1/metrics":
+                Collector.metrics += body
         self.send_response(200)
         self.send_header("Content-Type", "application/x-protobuf")
         self.end_headers()
@@ -49,6 +56,11 @@ class Collector(BaseHTTPRequestHandler):
 def traced(text: str) -> bool:
     with Collector.lock:
         return text.encode() in Collector.traces
+
+
+def measured(text: str) -> bool:
+    with Collector.lock:
+        return text.encode() in Collector.metrics
 
 
 def compose(*args: str, check: bool = True) -> str:
@@ -63,6 +75,7 @@ def compose(*args: str, check: bool = True) -> str:
             "PORT": PORT,
             "POSTGRES_PORT": DB_PORT,
             "OTEL_EXPORTER_OTLP_ENDPOINT": f"http://host.docker.internal:{OTLP_PORT}",
+            "OTEL_METRIC_EXPORT_INTERVAL": "1000",
         },
     )
     if check and result.returncode != 0:
@@ -207,6 +220,46 @@ def test_writes_structured_json_logs_without_credentials() -> None:
 def test_exports_route_named_spans_with_database_spans() -> None:
     wait_for(lambda: traced("GET /v1/notes") and traced("api-fastapi-starter"), 30)
     wait_for(lambda: traced("SELECT"), 30)
+    assert not traced("GET /healthz")
+    assert not traced("GET /readyz")
+
+
+def test_exports_job_spans_and_metrics() -> None:
+    wait_for(lambda: traced("job send_welcome_email"), 30)
+    wait_for(lambda: measured("http.server") and measured("db.client.connections.usage"), 30)
+
+
+def test_serves_the_docs_from_its_own_origin_with_no_csp_violation() -> None:
+    problems: list[str] = []
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch()
+        page = browser.new_page()
+        page.on("console", lambda message: problems.append(f"{message.type}: {message.text}"))
+        page.on("pageerror", lambda error: problems.append(f"pageerror: {error}"))
+        page.on(
+            "request",
+            lambda request: (
+                None if request.url.startswith(BASE) else problems.append(f"request: {request.url}")
+            ),
+        )
+        page.add_init_script(
+            "document.addEventListener('securitypolicyviolation', event => "
+            "console.error(`CSP: ${event.violatedDirective} ${event.blockedURI}`))"
+        )
+        page.goto(f"{BASE}/docs")
+        page.wait_for_selector(".swagger-ui .info .title")
+        title = page.inner_text(".swagger-ui .info .title")
+        page.click("#operations-health-getLiveness .opblock-summary")
+        page.click("#operations-health-getLiveness .try-out__btn")
+        page.click("#operations-health-getLiveness .execute")
+        page.wait_for_selector("#operations-health-getLiveness .live-responses-table")
+        status = page.inner_text(
+            "#operations-health-getLiveness .live-responses-table tbody .response-col_status"
+        )
+        browser.close()
+    assert title.startswith("api-fastapi-starter")
+    assert status.strip() == "200"
+    assert problems == []
 
 
 def test_reports_a_database_outage_records_the_error_and_recovers() -> None:
@@ -234,6 +287,7 @@ def test_keeps_data_across_a_restart() -> None:
 def test_shuts_down_gracefully_on_sigterm() -> None:
     compose("stop", "api")
     logs = compose("logs", "--no-log-prefix", "api")
+    assert "Draining before shutdown" in logs
     assert "Application shutdown complete." in logs
     code = compose("ps", "--all", "api", "--format", "{{.ExitCode}}").strip().splitlines()[-1]
     assert code in {"0", "143"}, code
