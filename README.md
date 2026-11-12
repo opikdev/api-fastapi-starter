@@ -7,14 +7,14 @@ A production-ready Python API you can run with one command and customize with co
 
 ## Features
 
-- **Typed end to end:** Pydantic models define every request and response, and `openapi.json` is committed and checked. Docs are at `/docs`.
+- **Typed end to end:** Pydantic models define every request and response, and `openapi.json` is committed and checked. Self-hosted docs are at `/docs` when `DOCS_ENABLED` is on, as it is in Compose.
 - **Generated client:** a typed Python client in `clients/python`, generated from the spec and used by the end-to-end tests. See [Call the API](docs/client.md).
 - **Background jobs:** procrastinate runs jobs from Postgres, with retries and an hourly cleanup, so there's no Redis to run. See [Run background jobs](docs/jobs.md).
 - **Auth:** registration, login, and revocable session tokens, sent as a bearer token or an httpOnly cookie, with argon2id password hashes and per-user data access. See [Log in from a browser app](docs/client.md#from-a-browser-app).
-- **Reliable by default:** rate limits, idempotency keys, optimistic concurrency, and cursor pagination.
+- **Reliable by default:** rate limits per network and per account, idempotency keys, optimistic concurrency, and cursor pagination.
 - **Consistent errors:** RFC 9457 Problem Details everywhere. See the [error reference](docs/errors.md).
 - **Safe data layer:** Alembic migrations checked against the models, constraints in the database, and an app role that can't change the schema.
-- **Ready to operate:** a non-root Docker image, health checks, JSON logs, and OpenTelemetry traces.
+- **Ready to operate:** a scanned, non-root, read-only Docker image, graceful drain on shutdown, health checks, JSON logs, and OpenTelemetry traces and metrics. See [Go live](docs/deploy.md).
 - **Agent-ready:** `AGENTS.md`, skills, and checks that run on every commit.
 - **Strict gates:** Ruff, mypy in strict mode, 90% coverage, architecture tests, and real end-to-end tests.
 
@@ -44,7 +44,7 @@ Send the returned token to list the seeded notes:
 curl localhost:3000/v1/notes -H 'Authorization: Bearer <YOUR_TOKEN>'
 ```
 
-If port 3000 or 5432 is taken, set `PORT` or `POSTGRES_PORT` before running Compose.
+If port 3000 or 5432 is taken, set `PORT` or `POSTGRES_PORT` before running Compose. Set `POSTGRES_PORT` in `.env` too, so the `make` targets follow it.
 
 ## Start your own project
 
@@ -74,7 +74,7 @@ make migrate seed dev
 | Run lint, types, generated-code checks, tests with coverage, and repo checks | `make verify` |
 | Test the real images end to end | `make e2e` |
 | Regenerate `openapi.json` and the client after changing a route | `make client` |
-| Create a migration after changing `src/app/db.py` | `uv run --env-file .env alembic revision --autogenerate -m "<what changed>"` |
+| Create a migration after changing `src/app/db.py` | `make migration name="<what changed>"` |
 | Apply migrations, then add demo data | `make migrate seed` |
 
 Tests start their own Postgres, so Docker must be running. Without Docker, point them at a Postgres 18 server instead:
@@ -85,7 +85,7 @@ TEST_DATABASE_URL=postgresql://<SUPERUSER>@localhost:5432/postgres make verify
 
 The dev container in `.devcontainer/` runs Postgres next to the code and sets `TEST_DATABASE_URL`, so `make verify` works inside it. `make e2e` needs Docker, so run it on the host.
 
-Each run creates a temporary database and drops it afterward, so existing data is never touched. To add a feature, rename the project, or remove a module, see [Customize the starter](docs/customize.md). Before you deploy, read [Operate the API](docs/operations.md).
+Each run creates a temporary database and drops it afterward, so existing data is never touched. To add a feature, rename the project, or remove a module, see [Customize the starter](docs/customize.md). Before you deploy, follow [Go live](docs/deploy.md), and see [Operate the API](docs/operations.md) for every setting.
 
 ## Project structure
 
