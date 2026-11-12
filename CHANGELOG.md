@@ -4,6 +4,8 @@ All notable changes to this repo are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-12
+
 ### Security
 
 - Rate limits key IPv6 clients by their /64, and IPv4-mapped IPv6 addresses as IPv4, so one host can't rotate addresses for a fresh budget.
